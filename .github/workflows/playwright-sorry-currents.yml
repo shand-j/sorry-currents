@@ -11,72 +11,16 @@ env:
   SHARD_COUNT: 3
 
 jobs:
-  plan:
-    name: Plan shards
-    runs-on: ubuntu-latest
-    outputs:
-      matrix: ${{ steps.plan.outputs.matrix }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "20"
-          cache: npm
-          cache-dependency-path: playwright-e2e/package-lock.json
-      - name: Install dependencies
-        working-directory: playwright-e2e
-        run: npm ci
-      - name: Download previous timing data
-        continue-on-error: true
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          mkdir -p playwright-e2e/.sorry-currents
-          # Find the most recent successful workflow run (excluding current)
-          RUN_ID=$(gh api \
-            "repos/${{ github.repository }}/actions/workflows/playwright-sorry-currents.yml/runs?status=completed&per_page=5" \
-            --jq ".workflow_runs[0].id // empty")
-          if [ -z "$RUN_ID" ]; then
-            echo "No previous runs found — cold start"
-            exit 0
-          fi
-          echo "Found previous run: $RUN_ID"
-          # Find the timing artifact in that run
-          ARTIFACT_ID=$(gh api \
-            "repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts" \
-            --jq '.artifacts[] | select(.name == "sorry-currents-timing") | .id // empty')
-          if [ -z "$ARTIFACT_ID" ]; then
-            echo "No timing artifact in run $RUN_ID — cold start"
-            exit 0
-          fi
-          echo "Downloading timing artifact $ARTIFACT_ID"
-          gh api \
-            "repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip" \
-            > /tmp/timing.zip
-          unzip -o /tmp/timing.zip -d playwright-e2e/.sorry-currents/
-          echo "Timing data restored"
-      - name: Generate shard plan
-        id: plan
-        working-directory: playwright-e2e
-        run: npx @sorry-currents/cli plan --shards ${{ env.SHARD_COUNT }} --output-matrix
-      - name: Upload shard plan
-        uses: actions/upload-artifact@v4
-        with:
-          name: sorry-currents-shard-plan
-          path: playwright-e2e/.sorry-currents/shard-plan.json
-          retention-days: 1
-          if-no-files-found: warn
-
   test:
     name: "Shard ${{ matrix.shardIndex }}"
-    needs: plan
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+      matrix:
+        shardIndex: [1, 2, 3]
     env:
       SORRY_CURRENTS_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
-      SORRY_CURRENTS_SHARD_TOTAL: ${{ matrix.shardTotal }}
+      SORRY_CURRENTS_SHARD_TOTAL: 3
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -101,12 +45,36 @@ jobs:
         if: steps.pw-cache.outputs.cache-hit == 'true'
         run: npx playwright install-deps chromium
         working-directory: playwright-e2e
-      - name: Download shard plan
-        uses: actions/download-artifact@v4
-        with:
-          name: sorry-currents-shard-plan
-          path: playwright-e2e/.sorry-currents/
+      - name: Download previous timing data
         continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p playwright-e2e/.sorry-currents
+          RUN_ID=$(gh api \
+            "repos/${{ github.repository }}/actions/workflows/playwright-sorry-currents.yml/runs?status=completed&per_page=5" \
+            --jq ".workflow_runs[0].id // empty")
+          if [ -z "$RUN_ID" ]; then
+            echo "No previous runs found — cold start"
+            exit 0
+          fi
+          echo "Found previous run: $RUN_ID"
+          ARTIFACT_ID=$(gh api \
+            "repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.name == "sorry-currents-timing") | .id // empty')
+          if [ -z "$ARTIFACT_ID" ]; then
+            echo "No timing artifact in run $RUN_ID — cold start"
+            exit 0
+          fi
+          echo "Downloading timing artifact $ARTIFACT_ID"
+          gh api \
+            "repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip" \
+            > /tmp/timing.zip
+          unzip -o /tmp/timing.zip -d playwright-e2e/.sorry-currents/
+          echo "Timing data restored"
+      - name: Generate shard plan
+        working-directory: playwright-e2e
+        run: npx @sorry-currents/cli plan --shards ${{ env.SHARD_COUNT }}
       - name: Run tests
         working-directory: playwright-e2e
         run: |
