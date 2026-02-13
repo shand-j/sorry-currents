@@ -14,8 +14,8 @@
   },
   "dependencies": {
     "@playwright/test": "1.56.1",
+    "@sorry-currents/cli": "^0.3.0",
     "@sorry-currents/reporter": "^0.1.0",
-    "@sorry-currents/cli": "^0.2.0",
     "playwright": "1.56.1"
   },
   "scripts": {
