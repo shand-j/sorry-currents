@@ -1,7 +1,15 @@
 {
   "name": "@sorry-currents/reporter",
   "version": "0.1.0",
+  "description": "Custom Playwright reporter for sorry-currents test orchestration",
   "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/shand-j/sorry-currents.git",
+    "directory": "packages/reporter"
+  },
+  "keywords": ["playwright", "reporter", "testing", "sharding"],
   "main": "./dist/index.cjs",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -12,6 +20,9 @@
     }
   },
   "files": ["dist"],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts",
     "typecheck": "tsc --noEmit",

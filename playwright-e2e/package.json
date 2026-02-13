@@ -14,15 +14,15 @@
   },
   "dependencies": {
     "@playwright/test": "1.56.1",
-    "@sorry-currents/reporter": "workspace:*",
-    "sorry-currents": "workspace:*",
+    "@sorry-currents/reporter": "^0.1.0",
+    "@sorry-currents/cli": "^0.1.1",
     "playwright": "1.56.1"
   },
   "scripts": {
     "clean": "rimraf ./artifacts && mkdirp ./artifacts",
     "format": "prettier --write \"**/**.[jt]s?(x)\"",
     "verify": "prettier --check \"**/**.[jt]s?(x)\"",
-    "scenario": "npx playwright test src/scenarios/todo-app.spec.ts --output artifacts/media --workers 1",
+    "scenario": "npx @sorry-currents/cli run -- --config=playwright.config.ts --output artifacts/media --workers 1 src/scenarios/todo-app.spec.ts",
     "test": "npx playwright test --output artifacts/media --workers 4",
     "debug": "npx playwright test --output artifacts/media --debug --workers 1",
     "ui": "npx playwright test --output artifacts/media --ui --workers 1",
