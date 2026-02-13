@@ -21,7 +21,7 @@ export {
   type ShardAssignment,
   type ShardPlan,
 } from './shard-plan.js';
-export { ShardTimingDataSchema, type ShardTimingData } from './shard-timing-data.js';
+export { ShardTimingDataSchema, MAX_DURATION_WINDOW, type ShardTimingData } from './shard-timing-data.js';
 export { TestErrorSchema, type TestError } from './test-error.js';
 export { TestResultSchema, TEST_STATUSES, type TestResult } from './test-result.js';
 export { VersionedDataSchema, type VersionedData } from './versioned-data.js';

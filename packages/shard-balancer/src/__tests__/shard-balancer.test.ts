@@ -242,8 +242,8 @@ describe('listStrategies', () => {
 describe('timingDataToEntries', () => {
   it('should convert ShardTimingData to TestTimingEntry', () => {
     const timingData = [
-      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 5000, p95Duration: 7000, samples: 10 },
-      { testId: 'test2', file: 'b.spec.ts', project: 'mobile', avgDuration: 3000, p95Duration: 4500, samples: 5 },
+      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 5000, p95Duration: 7000, samples: 10, stdDev: 500, lastDurations: [4500, 5500] },
+      { testId: 'test2', file: 'b.spec.ts', project: 'mobile', avgDuration: 3000, p95Duration: 4500, samples: 5, stdDev: 300, lastDurations: [2700, 3300] },
     ];
 
     const entries = timingDataToEntries(timingData, 10_000);
@@ -257,7 +257,7 @@ describe('timingDataToEntries', () => {
 
   it('should use default duration for zero avgDuration', () => {
     const timingData = [
-      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 0, p95Duration: 0, samples: 1 },
+      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 0, p95Duration: 0, samples: 1, stdDev: 0, lastDurations: [] },
     ];
 
     const entries = timingDataToEntries(timingData, 10_000);

@@ -15,11 +15,34 @@ export interface ShardStrategy {
 
 /**
  * Input entry for the shard balancer — a test with its estimated duration.
+ * Optional variance fields enable risk-adjusted balancing.
  */
 export interface TestTimingEntry {
   readonly testId: string;
   readonly file: string;
   readonly estimatedDuration: number;
+  /** Standard deviation of recent durations — used for risk-adjusted balancing. */
+  readonly stdDev?: number;
+}
+
+/**
+ * Compute a risk-adjusted (pessimistic) duration estimate.
+ *
+ * Returns avg + k * stdDev, where k is the risk factor.
+ * When stdDev is 0 or undefined, returns avg unchanged.
+ * Pure function — quantifies execution time uncertainty as extra duration padding.
+ *
+ * @param avg - Average duration in ms
+ * @param stdDev - Standard deviation of recent durations in ms
+ * @param riskFactor - How many standard deviations to add (0 = no padding, 1 = 68th percentile, 2 = 95th percentile)
+ */
+export function computePessimisticDuration(
+  avg: number,
+  stdDev: number | undefined,
+  riskFactor: number,
+): number {
+  if (!stdDev || riskFactor <= 0) return avg;
+  return Math.round(avg + riskFactor * stdDev);
 }
 
 // --- Shared helpers ---
@@ -206,16 +229,30 @@ export function listStrategies(): readonly string[] {
 /**
  * Convert ShardTimingData[] to TestTimingEntry[], applying a default
  * duration for tests without history data.
+ *
+ * When riskFactor > 0 and stdDev data is available, uses pessimistic
+ * duration estimates (avg + k * stdDev) to make shard balancing resilient
+ * to execution time variance.
  */
 export function timingDataToEntries(
   timingData: readonly ShardTimingData[],
   defaultDuration: number,
+  riskFactor: number = 0,
 ): TestTimingEntry[] {
-  return timingData.map((td) => ({
-    testId: td.testId,
-    file: td.file,
-    estimatedDuration: td.avgDuration > 0 ? td.avgDuration : defaultDuration,
-  }));
+  return timingData.map((td) => {
+    const baseDuration = td.avgDuration > 0 ? td.avgDuration : defaultDuration;
+    const stdDev = td.stdDev ?? 0;
+    const estimatedDuration = riskFactor > 0
+      ? computePessimisticDuration(baseDuration, stdDev, riskFactor)
+      : baseDuration;
+
+    return {
+      testId: td.testId,
+      file: td.file,
+      estimatedDuration,
+      stdDev,
+    };
+  });
 }
 
 /**

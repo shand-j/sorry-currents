@@ -5,20 +5,33 @@ import { dirname } from 'node:path';
 import { type Result, ok, err } from '../result.js';
 import { AppError } from '../errors/app-error.js';
 import { ErrorCode } from '../errors/error-codes.js';
-import { ShardTimingDataSchema, type ShardTimingData } from '../schemas/shard-timing-data.js';
+import { ShardTimingDataSchema, MAX_DURATION_WINDOW, type ShardTimingData } from '../schemas/shard-timing-data.js';
 import { type VersionedData } from '../schemas/versioned-data.js';
 import { type TestResult } from '../schemas/test-result.js';
 
 import { z } from 'zod';
 
 /** Current schema version for timing data files */
-const TIMING_DATA_VERSION = 1 as const;
+const TIMING_DATA_VERSION = 2 as const;
 
 /** Maximum number of duration samples to keep per test */
 const MAX_SAMPLES = 50 as const;
 
 /** Default path for timing data file */
 export const DEFAULT_TIMING_DATA_PATH = '.sorry-currents/timing-data.json';
+
+/**
+ * Compute the population standard deviation of a list of durations.
+ * Returns 0 for empty arrays or single-element arrays (no variance).
+ * Pure function — used to quantify execution time variability.
+ */
+export function computeStdDev(durations: readonly number[]): number {
+  if (durations.length <= 1) return 0;
+
+  const mean = durations.reduce((sum, d) => sum + d, 0) / durations.length;
+  const sumSquaredDiffs = durations.reduce((sum, d) => sum + (d - mean) ** 2, 0);
+  return Math.round(Math.sqrt(sumSquaredDiffs / durations.length));
+}
 
 /**
  * Read and validate timing data from a JSON file.
@@ -87,6 +100,7 @@ export async function writeTimingData(
 /**
  * Update timing data with results from a completed test run.
  * Merges new durations into existing data, keeping a rolling window of samples.
+ * Tracks standard deviation via a lastDurations window for variance-aware balancing.
  * Pure computation — given old data + new results, produces updated data.
  */
 export function updateTimingData(
@@ -123,6 +137,10 @@ export function updateTimingData(
           : existingEntry.p95Duration * 0.95 + result.duration * 0.05,
       );
 
+      // Maintain rolling duration window for stdDev (FIFO eviction at MAX_DURATION_WINDOW)
+      const prevDurations = existingEntry.lastDurations ?? [];
+      const newDurations = [...prevDurations, result.duration].slice(-MAX_DURATION_WINDOW);
+
       dataMap.set(result.id, {
         testId: result.id,
         file: result.file,
@@ -130,6 +148,8 @@ export function updateTimingData(
         avgDuration: Math.round(newAvg),
         p95Duration: Math.round(newP95),
         samples: Math.min(newSamples, MAX_SAMPLES),
+        lastDurations: newDurations,
+        stdDev: computeStdDev(newDurations),
       });
     } else {
       // New test — initialize with first sample
@@ -140,6 +160,8 @@ export function updateTimingData(
         avgDuration: result.duration,
         p95Duration: result.duration,
         samples: 1,
+        lastDurations: [result.duration],
+        stdDev: 0,
       });
     }
   }

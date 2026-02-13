@@ -35,8 +35,8 @@ describe('readTimingData', () => {
 
   it('should read valid versioned timing data', async () => {
     const data: ShardTimingData[] = [
-      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 5000, p95Duration: 7000, samples: 10 },
-      { testId: 'test2', file: 'b.spec.ts', project: 'mobile', avgDuration: 3000, p95Duration: 4500, samples: 5 },
+      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 5000, p95Duration: 7000, samples: 10, stdDev: 0, lastDurations: [] },
+      { testId: 'test2', file: 'b.spec.ts', project: 'mobile', avgDuration: 3000, p95Duration: 4500, samples: 5, stdDev: 0, lastDurations: [] },
     ];
 
     const versioned = {
@@ -60,7 +60,7 @@ describe('readTimingData', () => {
 
   it('should read plain array format (backwards compat)', async () => {
     const data: ShardTimingData[] = [
-      { testId: 'test1', file: 'a.spec.ts', project: '', avgDuration: 1000, p95Duration: 1200, samples: 1 },
+      { testId: 'test1', file: 'a.spec.ts', project: '', avgDuration: 1000, p95Duration: 1200, samples: 1, stdDev: 0, lastDurations: [] },
     ];
 
     const filePath = join(tempDir, 'timing-data.json');
@@ -108,7 +108,7 @@ describe('writeTimingData', () => {
 
   it('should write versioned JSON with trailing newline', async () => {
     const data: ShardTimingData[] = [
-      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 5000, p95Duration: 7000, samples: 10 },
+      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 5000, p95Duration: 7000, samples: 10, stdDev: 0, lastDurations: [] },
     ];
 
     const filePath = join(tempDir, 'output', 'timing.json');
@@ -121,7 +121,7 @@ describe('writeTimingData', () => {
     expect(raw.endsWith('\n')).toBe(true);
 
     const parsed = JSON.parse(raw) as Record<string, unknown>;
-    expect(parsed['version']).toBe(1);
+    expect(parsed['version']).toBe(2);
     expect(parsed['generatedBy']).toContain('sorry-currents');
     expect(parsed['timestamp']).toBeDefined();
     expect(Array.isArray(parsed['data'])).toBe(true);
@@ -137,8 +137,8 @@ describe('writeTimingData', () => {
 
   it('should roundtrip through readTimingData', async () => {
     const data: ShardTimingData[] = [
-      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 5000, p95Duration: 7000, samples: 10 },
-      { testId: 'test2', file: 'b.spec.ts', project: '', avgDuration: 3000, p95Duration: 4500, samples: 5 },
+      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 5000, p95Duration: 7000, samples: 10, stdDev: 0, lastDurations: [] },
+      { testId: 'test2', file: 'b.spec.ts', project: '', avgDuration: 3000, p95Duration: 4500, samples: 5, stdDev: 0, lastDurations: [] },
     ];
 
     const filePath = join(tempDir, 'roundtrip.json');
@@ -187,7 +187,7 @@ describe('updateTimingData', () => {
 
   it('should merge with existing timing data', () => {
     const existing: ShardTimingData[] = [
-      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 5000, p95Duration: 7000, samples: 10 },
+      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 5000, p95Duration: 7000, samples: 10, stdDev: 0, lastDurations: [] },
     ];
 
     const results: TestResult[] = [
@@ -223,7 +223,7 @@ describe('updateTimingData', () => {
 
   it('should cap samples at MAX_SAMPLES (50)', () => {
     const existing: ShardTimingData[] = [
-      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 1000, p95Duration: 1200, samples: 50 },
+      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 1000, p95Duration: 1200, samples: 50, stdDev: 0, lastDurations: [] },
     ];
 
     const results: TestResult[] = [
@@ -236,8 +236,8 @@ describe('updateTimingData', () => {
 
   it('should preserve existing entries not in new results', () => {
     const existing: ShardTimingData[] = [
-      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 1000, p95Duration: 1200, samples: 5 },
-      { testId: 'test2', file: 'b.spec.ts', project: 'default', avgDuration: 2000, p95Duration: 2500, samples: 3 },
+      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 1000, p95Duration: 1200, samples: 5, stdDev: 0, lastDurations: [] },
+      { testId: 'test2', file: 'b.spec.ts', project: 'default', avgDuration: 2000, p95Duration: 2500, samples: 3, stdDev: 0, lastDurations: [] },
     ];
 
     const results: TestResult[] = [
@@ -251,7 +251,7 @@ describe('updateTimingData', () => {
 
   it('should update p95 upward when new duration exceeds it', () => {
     const existing: ShardTimingData[] = [
-      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 1000, p95Duration: 1200, samples: 5 },
+      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 1000, p95Duration: 1200, samples: 5, stdDev: 0, lastDurations: [] },
     ];
 
     const results: TestResult[] = [
@@ -265,7 +265,7 @@ describe('updateTimingData', () => {
 
   it('should slowly decay p95 when new duration is below it', () => {
     const existing: ShardTimingData[] = [
-      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 1000, p95Duration: 1200, samples: 5 },
+      { testId: 'test1', file: 'a.spec.ts', project: 'default', avgDuration: 1000, p95Duration: 1200, samples: 5, stdDev: 0, lastDurations: [] },
     ];
 
     const results: TestResult[] = [

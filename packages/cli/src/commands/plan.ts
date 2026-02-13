@@ -30,6 +30,7 @@ interface PlanOptions {
   readonly shards?: string;
   readonly targetDuration?: string;
   readonly maxShards?: string;
+  readonly riskFactor?: string;
   readonly timing: string;
   readonly testDir?: string;
   readonly output?: string;
@@ -77,6 +78,11 @@ export function registerPlanCommand(program: Command): void {
       'Estimated duration for tests without history',
       String(DEFAULT_TEST_DURATION),
     )
+    .option(
+      '--risk-factor <k>',
+      'Variance padding multiplier (0=average only, 1=+1 stddev, 2=+2 stddev)',
+      '1',
+    )
     .option('--verbose', 'Enable debug logging')
     .action(async (options: PlanOptions) => {
       const logger = new ConsoleLogger(
@@ -103,6 +109,13 @@ export function registerPlanCommand(program: Command): void {
       }
 
       const defaultDuration = parseInt(options.defaultTimeout, 10) || DEFAULT_TEST_DURATION;
+
+      // Parse risk factor for variance-aware balancing
+      const riskFactor = parseFloat(options.riskFactor ?? '1');
+      if (!Number.isFinite(riskFactor) || riskFactor < 0) {
+        logger.error('Invalid risk factor — must be a non-negative number', { value: options.riskFactor });
+        process.exit(2);
+      }
 
       // Read timing data
       const timingResult = await readTimingData(options.timing);
@@ -132,7 +145,7 @@ export function registerPlanCommand(program: Command): void {
             { maxShards },
           );
         } else {
-          const entries = timingDataToEntries(timingData, defaultDuration);
+          const entries = timingDataToEntries(timingData, defaultDuration, riskFactor);
           shardCount = calculateOptimalShardCount(entries, targetDurationMs, maxShards);
           logger.info('Auto-calculated shard count', {
             shardCount,
@@ -157,6 +170,9 @@ export function registerPlanCommand(program: Command): void {
           tests: timingData.length,
           path: options.timing,
         });
+        if (riskFactor > 0) {
+          logger.info('Variance-aware balancing enabled', { riskFactor });
+        }
       }
 
       // Resolve strategy
@@ -239,7 +255,7 @@ export function registerPlanCommand(program: Command): void {
           }));
         }
       } else {
-        entries = timingDataToEntries(timingData, defaultDuration);
+        entries = timingDataToEntries(timingData, defaultDuration, riskFactor);
 
         // Discover test files from disk and merge with timing data.
         // Any spec file not in timing data gets defaultDuration so new files are never silently dropped.

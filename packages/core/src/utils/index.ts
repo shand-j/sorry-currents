@@ -8,6 +8,7 @@ export {
   readTimingData,
   writeTimingData,
   updateTimingData,
+  computeStdDev,
   DEFAULT_TIMING_DATA_PATH,
 } from './timing-data.js';
 export {
