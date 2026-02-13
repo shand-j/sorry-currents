@@ -128,6 +128,25 @@ export function registerPlanCommand(program: Command): void {
             );
           }
 
+          // Write a cold-start shard plan so downstream jobs can download it.
+          // The run command detects empty test lists and falls back to native sharding.
+          const coldPlan = {
+            shards: Array.from({ length: shardCount }, (_, i) => ({
+              shardIndex: i + 1,
+              tests: [] as string[],
+              estimatedDuration: 0,
+            })),
+            totalTests: 0,
+            maxShardDuration: 0,
+            minShardDuration: 0,
+          };
+          const planPath = options.output ?? join('.sorry-currents', 'shard-plan.json');
+          const { mkdir } = await import('node:fs/promises');
+          const { dirname } = await import('node:path');
+          await mkdir(dirname(planPath), { recursive: true });
+          await writeFile(planPath, JSON.stringify(coldPlan, null, 2) + '\n', 'utf-8');
+          logger.info('Cold start shard plan written', { path: planPath });
+
           return;
         }
 

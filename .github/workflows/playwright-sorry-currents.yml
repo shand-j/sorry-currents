@@ -82,12 +82,12 @@ jobs:
         working-directory: playwright-e2e
         run: npx sorry-currents plan --shards ${{ env.SHARD_COUNT }} --output-matrix
       - name: Upload shard plan
-        if: hashFiles('playwright-e2e/.sorry-currents/shard-plan.json') != ''
         uses: actions/upload-artifact@v4
         with:
           name: sorry-currents-shard-plan
           path: playwright-e2e/.sorry-currents/shard-plan.json
           retention-days: 1
+          if-no-files-found: warn
 
   test:
     name: "Shard ${{ matrix.shardIndex }}"
