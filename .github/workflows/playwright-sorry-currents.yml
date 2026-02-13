@@ -1,4 +1,4 @@
-name: "Playwright — sorry-currents sharding"
+name: "Playwright - sorry-currents sharding"
 
 on:
   push:
