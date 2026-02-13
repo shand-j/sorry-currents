@@ -18,37 +18,64 @@ test.describe('Notifications', () => {
       .toast .action-btn { background: rgba(255,255,255,0.3); border: none; color: white; padding: 4px 8px; border-radius: 3px; cursor: pointer; }
       @keyframes slideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
     </style>
-    <button id="show-success" onclick="showToast('success', 'Operation completed')">Success</button>
-    <button id="show-error" onclick="showToast('error', 'Something went wrong')">Error</button>
-    <button id="show-warning" onclick="showToast('warning', 'Please review', true)">Warning</button>
-    <button id="show-action" onclick="showActionToast()">With Action</button>
+    <button id="show-success">Success</button>
+    <button id="show-error">Error</button>
+    <button id="show-warning">Warning</button>
+    <button id="show-action">With Action</button>
     <div class="toast-container" id="toasts"></div>
     <div id="action-result" style="display:none;"></div>
     <script>
       var toastId = 0;
+      function makeCloseBtn() {
+        var btn = document.createElement("button");
+        btn.className = "close";
+        btn.setAttribute("aria-label", "Dismiss");
+        btn.textContent = "\\u00d7";
+        btn.addEventListener("click", function() { this.parentElement.remove(); });
+        return btn;
+      }
       function showToast(type, message, persistent) {
-        var id = 'toast-' + (++toastId);
-        var container = document.getElementById('toasts');
-        var toast = document.createElement('div');
-        toast.className = 'toast ' + type;
+        var id = "toast-" + (++toastId);
+        var container = document.getElementById("toasts");
+        var toast = document.createElement("div");
+        toast.className = "toast " + type;
         toast.id = id;
-        toast.role = 'alert';
-        toast.innerHTML = '<span>' + message + '</span><button class="close" onclick="this.parentElement.remove()" aria-label="Dismiss">&times;</button>';
+        toast.setAttribute("role", "alert");
+        var span = document.createElement("span");
+        span.textContent = message;
+        toast.appendChild(span);
+        toast.appendChild(makeCloseBtn());
         container.appendChild(toast);
         if (!persistent) {
           setTimeout(function() { var el = document.getElementById(id); if (el) el.remove(); }, 3000);
         }
       }
       function showActionToast() {
-        var id = 'toast-' + (++toastId);
-        var container = document.getElementById('toasts');
-        var toast = document.createElement('div');
-        toast.className = 'toast warning';
+        var id = "toast-" + (++toastId);
+        var container = document.getElementById("toasts");
+        var toast = document.createElement("div");
+        toast.className = "toast warning";
         toast.id = id;
-        toast.role = 'alert';
-        toast.innerHTML = '<span>Undo available</span><button class="action-btn" onclick="document.getElementById(\'action-result\').textContent=\'Undone\';document.getElementById(\'action-result\').style.display=\'block\';this.parentElement.remove();">Undo</button><button class="close" onclick="this.parentElement.remove()">&times;</button>';
+        toast.setAttribute("role", "alert");
+        var span = document.createElement("span");
+        span.textContent = "Undo available";
+        toast.appendChild(span);
+        var actionBtn = document.createElement("button");
+        actionBtn.className = "action-btn";
+        actionBtn.textContent = "Undo";
+        actionBtn.addEventListener("click", function() {
+          document.getElementById("action-result").textContent = "Undone";
+          document.getElementById("action-result").style.display = "block";
+          toast.remove();
+        });
+        toast.appendChild(actionBtn);
+        toast.appendChild(makeCloseBtn());
         container.appendChild(toast);
       }
+      document.getElementById("show-success").addEventListener("click", function() { showToast("success", "Operation completed"); });
+      document.getElementById("show-error").addEventListener("click", function() { showToast("error", "Something went wrong"); });
+      document.getElementById("show-warning").addEventListener("click", function() { showToast("warning", "Please review", true); });
+      document.getElementById("show-action").addEventListener("click", showActionToast);
     </script>
   `;
 

@@ -1,5 +1,5 @@
-import { writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { writeFile, readdir } from 'node:fs/promises';
+import { join, relative } from 'node:path';
 
 import type { Command } from 'commander';
 
@@ -31,6 +31,7 @@ interface PlanOptions {
   readonly targetDuration?: string;
   readonly maxShards?: string;
   readonly timing: string;
+  readonly testDir?: string;
   readonly output?: string;
   readonly outputMatrix?: boolean;
   readonly strategy: string;
@@ -66,6 +67,10 @@ export function registerPlanCommand(program: Command): void {
       '--strategy <name>',
       `Balancing strategy: ${listStrategies().join(' | ')}`,
       'lpt',
+    )
+    .option(
+      '--test-dir <path>',
+      'Directory to scan for spec files (merges with timing data to discover new tests)',
     )
     .option(
       '--default-timeout <ms>',
@@ -217,6 +222,36 @@ export function registerPlanCommand(program: Command): void {
         }));
       } else {
         entries = timingDataToEntries(timingData, defaultDuration);
+
+        // Discover test files from disk and merge with timing data.
+        // Any spec file not in timing data gets defaultDuration so new files are never silently dropped.
+        if (options.testDir) {
+          const discoveredFiles = await discoverTestFiles(options.testDir);
+          const knownFiles = new Set(entries.map(e => e.file));
+          let newFileCount = 0;
+          for (const file of discoveredFiles) {
+            if (!knownFiles.has(file)) {
+              entries.push({
+                testId: `discovered:${file}`,
+                file,
+                estimatedDuration: defaultDuration,
+              });
+              newFileCount++;
+            }
+          }
+          if (newFileCount > 0) {
+            logger.info('Discovered new test files not in timing data', {
+              newFiles: newFileCount,
+              totalFiles: discoveredFiles.length,
+              defaultDuration: formatDuration(defaultDuration),
+            });
+            // Recalculate shard count if auto-calculating
+            if (!options.shards && targetDurationMs !== undefined) {
+              shardCount = calculateOptimalShardCount(entries, targetDurationMs, maxShards);
+              logger.info('Recalculated shard count after file discovery', { shardCount });
+            }
+          }
+        }
       }
 
       // Generate shard plan
@@ -275,4 +310,31 @@ export function registerPlanCommand(program: Command): void {
         process.stdout.write(planJson);
       }
     });
+}
+
+/**
+ * Recursively discover test spec files in a directory.
+ * Returns relative paths matching *.spec.ts / *.test.ts patterns.
+ */
+async function discoverTestFiles(dirPath: string): Promise<string[]> {
+  const results: string[] = [];
+
+  async function walk(dir: string): Promise<void> {
+    const entries = await readdir(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const fullPath = join(dir, entry.name);
+      if (entry.isDirectory() && entry.name !== 'node_modules') {
+        await walk(fullPath);
+      } else if (
+        entry.isFile() &&
+        (entry.name.endsWith('.spec.ts') || entry.name.endsWith('.test.ts'))
+      ) {
+        // Use path relative to cwd, matching Playwright's file references
+        results.push(relative(process.cwd(), fullPath));
+      }
+    }
+  }
+
+  await walk(dirPath);
+  return results.sort();
 }

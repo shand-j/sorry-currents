@@ -56,7 +56,7 @@ jobs:
       - name: Generate shard plan
         id: plan
         working-directory: playwright-e2e
-        run: npx @sorry-currents/cli plan --target-duration 30 --max-shards 8 --output-matrix
+        run: npx @sorry-currents/cli plan --target-duration 30 --max-shards 8 --test-dir src/scenarios --output-matrix
       - name: Upload shard plan
         uses: actions/upload-artifact@v4
         with:

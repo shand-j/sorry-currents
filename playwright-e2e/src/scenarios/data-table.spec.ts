@@ -36,7 +36,7 @@ test.describe('Data Table', () => {
     </table>
     <div id="pagination"></div>
     <script>
-      let sortDir = 1;
+      let sortDir = -1;
       function sortTable(col) {
         const tbody = document.getElementById('tbody');
         const rows = Array.from(tbody.querySelectorAll('tr'));

@@ -28,83 +28,86 @@ test.describe('Storage and State', () => {
       <div class="form-row">
         <input id="key" placeholder="Key" />
         <input id="value" placeholder="Value" />
-        <button class="btn-save" onclick="saveItem()">Save</button>
+        <button class="btn-save" id="btn-save">Save</button>
       </div>
       <div class="form-row">
-        <button class="btn-load" onclick="loadItems()">Load All</button>
-        <button class="btn-clear" onclick="clearAll()">Clear All</button>
+        <button class="btn-load" id="btn-load">Load All</button>
+        <button class="btn-clear" id="btn-clear">Clear All</button>
       </div>
       <div id="status" class="status"></div>
       <div class="stored-items" id="items"></div>
       <div style="margin-top:20px;">
         <h4>Session Counter</h4>
         <p>Page views this session: <span id="counter">0</span></p>
-        <button onclick="incrementCounter()">Increment</button>
+        <button id="btn-increment">Increment</button>
       </div>
     </div>
     <script>
+      // In-memory store — avoids about:blank localStorage restrictions
+      var store = {};
+      var sessionCounter = 0;
+
       function saveItem() {
-        var key = document.getElementById('key').value;
-        var val = document.getElementById('value').value;
-        var status = document.getElementById('status');
+        var key = document.getElementById("key").value;
+        var val = document.getElementById("value").value;
+        var status = document.getElementById("status");
         if (!key || !val) {
-          status.className = 'status empty';
-          status.textContent = 'Both key and value required';
+          status.className = "status empty";
+          status.textContent = "Both key and value required";
           return;
         }
-        localStorage.setItem('app_' + key, val);
-        status.className = 'status success';
-        status.textContent = 'Saved: ' + key;
-        document.getElementById('key').value = '';
-        document.getElementById('value').value = '';
+        store[key] = val;
+        status.className = "status success";
+        status.textContent = "Saved: " + key;
+        document.getElementById("key").value = "";
+        document.getElementById("value").value = "";
         loadItems();
       }
 
       function loadItems() {
-        var container = document.getElementById('items');
-        container.innerHTML = '';
-        var count = 0;
-        for (var i = 0; i < localStorage.length; i++) {
-          var k = localStorage.key(i);
-          if (k && k.startsWith('app_')) {
-            count++;
-            var div = document.createElement('div');
-            div.className = 'stored-item';
-            div.innerHTML = '<span><strong>' + k.slice(4) + '</strong>: ' + localStorage.getItem(k) + '</span><span class="delete" data-key="' + k + '" onclick="deleteItem(this.dataset.key)">✕</span>';
-            container.appendChild(div);
-          }
-        }
-        if (count === 0) {
+        var container = document.getElementById("items");
+        container.innerHTML = "";
+        var keys = Object.keys(store);
+        if (keys.length === 0) {
           container.innerHTML = '<p style="color:#999">No items stored</p>';
+          return;
         }
+        keys.forEach(function(k) {
+          var div = document.createElement("div");
+          div.className = "stored-item";
+          var span = document.createElement("span");
+          span.innerHTML = "<strong>" + k + "</strong>: " + store[k];
+          div.appendChild(span);
+          var del = document.createElement("span");
+          del.className = "delete";
+          del.textContent = "\\u2715";
+          del.addEventListener("click", function() { deleteItem(k); });
+          div.appendChild(del);
+          container.appendChild(div);
+        });
       }
 
       function deleteItem(key) {
-        localStorage.removeItem(key);
+        delete store[key];
         loadItems();
       }
 
       function clearAll() {
-        var keys = [];
-        for (var i = 0; i < localStorage.length; i++) {
-          var k = localStorage.key(i);
-          if (k && k.startsWith('app_')) keys.push(k);
-        }
-        keys.forEach(function(k) { localStorage.removeItem(k); });
-        document.getElementById('status').className = 'status success';
-        document.getElementById('status').textContent = 'All items cleared';
+        store = {};
+        document.getElementById("status").className = "status success";
+        document.getElementById("status").textContent = "All items cleared";
         loadItems();
       }
 
       function incrementCounter() {
-        var c = parseInt(sessionStorage.getItem('counter') || '0') + 1;
-        sessionStorage.setItem('counter', String(c));
-        document.getElementById('counter').textContent = String(c);
+        sessionCounter++;
+        document.getElementById("counter").textContent = String(sessionCounter);
       }
 
-      // Initialize
-      var c = sessionStorage.getItem('counter') || '0';
-      document.getElementById('counter').textContent = c;
+      document.getElementById("btn-save").addEventListener("click", saveItem);
+      document.getElementById("btn-load").addEventListener("click", loadItems);
+      document.getElementById("btn-clear").addEventListener("click", clearAll);
+      document.getElementById("btn-increment").addEventListener("click", incrementCounter);
       loadItems();
     </script>
   `;
@@ -123,8 +126,8 @@ test.describe('Storage and State', () => {
     await delay(1200);
     await page.setContent(storageHtml);
     await page.evaluate(() => {
-      localStorage.setItem('app_fruit', 'apple');
-      localStorage.setItem('app_veggie', 'carrot');
+      (window as any).store['fruit'] = 'apple';
+      (window as any).store['veggie'] = 'carrot';
     });
     await page.click('.btn-load');
     await expect(page.locator('.stored-item')).toHaveCount(2);
@@ -134,8 +137,8 @@ test.describe('Storage and State', () => {
     await delay(1500);
     await page.setContent(storageHtml);
     await page.evaluate(() => {
-      localStorage.setItem('app_item1', 'val1');
-      localStorage.setItem('app_item2', 'val2');
+      (window as any).store['item1'] = 'val1';
+      (window as any).store['item2'] = 'val2';
     });
     await page.click('.btn-load');
     await expect(page.locator('.stored-item')).toHaveCount(2);
@@ -147,8 +150,8 @@ test.describe('Storage and State', () => {
     await delay(1000);
     await page.setContent(storageHtml);
     await page.evaluate(() => {
-      localStorage.setItem('app_x', '1');
-      localStorage.setItem('app_y', '2');
+      (window as any).store['x'] = '1';
+      (window as any).store['y'] = '2';
     });
     await page.click('.btn-load');
     await page.click('.btn-clear');

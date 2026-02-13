@@ -81,7 +81,13 @@ test.describe('Search and Filter', () => {
         var sug = document.getElementById('suggestions');
         if (query.length >= 2) {
           var matches = items.filter(function(i) { return i.title.toLowerCase().includes(query); }).slice(0, 5);
-          sug.innerHTML = matches.map(function(m) { return '<div onclick="selectSuggestion(\\''+m.title+'\\')">'+m.title+'</div>'; }).join('');
+          sug.innerHTML = '';
+          matches.forEach(function(m) {
+            var div = document.createElement('div');
+            div.textContent = m.title;
+            div.addEventListener('click', function() { selectSuggestion(m.title); });
+            sug.appendChild(div);
+          });
           sug.style.display = matches.length ? 'block' : 'none';
         } else {
           sug.style.display = 'none';
@@ -133,9 +139,9 @@ test.describe('Search and Filter', () => {
     await delay(2500);
     await page.setContent(searchHtml);
     await page.click('.filters button[data-filter="devops"]');
-    await expect(page.locator('.result-item')).toHaveCount(3);
+    await expect(page.locator('.result-item')).toHaveCount(4);
     const categories = page.locator('.result-item .category');
-    for (let i = 0; i < 3; i++) {
+    for (let i = 0; i < 4; i++) {
       await expect(categories.nth(i)).toHaveText('devops');
     }
   });
