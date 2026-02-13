@@ -66,8 +66,9 @@ function toShardPlan(
 /**
  * Longest Processing Time First (LPT) algorithm.
  *
- * Greedy heuristic that sorts tests by duration descending,
- * then assigns each test to the shard with the lowest current load.
+ * Aggregates individual test entries by file (since Playwright runs at the
+ * file level), then sorts files by total duration descending and assigns
+ * each file to the shard with the lowest current load.
  * Produces near-optimal results for most real-world test suites.
  */
 export class LPTStrategy implements ShardStrategy {
@@ -75,26 +76,29 @@ export class LPTStrategy implements ShardStrategy {
 
   balance(tests: readonly TestTimingEntry[], shardCount: number): ShardPlan {
     validateShardCount(shardCount);
-    const effective = effectiveCount(shardCount, tests.length);
 
-    // Sort by duration descending
-    const sorted = [...tests].sort(
-      (a, b) => b.estimatedDuration - a.estimatedDuration,
-    );
+    // Aggregate individual test entries by file — Playwright can only
+    // shard at the file level, so we must keep all tests in a file together.
+    const fileMap = new Map<string, number>();
+    for (const test of tests) {
+      fileMap.set(test.file, (fileMap.get(test.file) ?? 0) + test.estimatedDuration);
+    }
 
+    const files = [...fileMap.entries()].sort((a, b) => b[1] - a[1]);
+    const effective = effectiveCount(shardCount, files.length);
     const shards = createEmptyBuckets(effective);
 
-    // Assign each test to the lightest shard
-    for (const test of sorted) {
+    // Assign each file to the lightest shard
+    for (const [file, duration] of files) {
       const lightest = shards.reduce((min, shard) =>
         shard.duration < min.duration ? shard : min,
       );
-      lightest.tests.push(test.file);
-      lightest.duration += test.estimatedDuration;
+      lightest.tests.push(file);
+      lightest.duration += duration;
     }
 
     // Calculate improvement over naive (even count) distribution
-    const totalDuration = tests.reduce((sum, t) => sum + t.estimatedDuration, 0);
+    const totalDuration = [...fileMap.values()].reduce((sum, d) => sum + d, 0);
     const maxDuration = Math.max(...shards.map((s) => s.duration), 0);
     const naiveMax = totalDuration / effective;
     const improvement =
@@ -105,7 +109,8 @@ export class LPTStrategy implements ShardStrategy {
 }
 
 /**
- * Simple round-robin distribution — assigns tests to shards in order.
+ * Simple round-robin distribution — assigns files to shards in order.
+ * Aggregates by file first, then distributes.
  * No optimization, useful as a baseline or when no timing data is available.
  */
 export class RoundRobinStrategy implements ShardStrategy {
@@ -113,14 +118,22 @@ export class RoundRobinStrategy implements ShardStrategy {
 
   balance(tests: readonly TestTimingEntry[], shardCount: number): ShardPlan {
     validateShardCount(shardCount);
-    const effective = effectiveCount(shardCount, tests.length);
+
+    // Aggregate by file
+    const fileMap = new Map<string, number>();
+    for (const test of tests) {
+      fileMap.set(test.file, (fileMap.get(test.file) ?? 0) + test.estimatedDuration);
+    }
+
+    const files = [...fileMap.entries()];
+    const effective = effectiveCount(shardCount, files.length);
     const shards = createEmptyBuckets(effective);
 
-    for (let i = 0; i < tests.length; i++) {
-      const test = tests[i]!;
+    for (let i = 0; i < files.length; i++) {
+      const [file, duration] = files[i]!;
       const idx = i % effective;
-      shards[idx]!.tests.push(test.file);
-      shards[idx]!.duration += test.estimatedDuration;
+      shards[idx]!.tests.push(file);
+      shards[idx]!.duration += duration;
     }
 
     return toShardPlan(shards, 'round-robin', tests.length);

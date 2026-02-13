@@ -30,16 +30,19 @@ const shardCountArb = fc.integer({ min: 1, max: 20 });
 describe('LPTStrategy — property-based tests', () => {
   const strategy = new LPTStrategy();
 
-  it('should never lose tests: total tests in plan equals input count', () => {
+  it('should never lose files: all unique files assigned to exactly one shard', () => {
     fc.assert(
       fc.property(testListArb, shardCountArb, (tests, shards) => {
         const plan = strategy.balance(tests, shards);
 
+        // Strategies aggregate by file — count unique files, not individual tests
+        const uniqueFiles = new Set(tests.map((t) => t.file));
         const totalAssigned = plan.shards.reduce(
           (sum, s) => sum + s.tests.length,
           0,
         );
-        expect(totalAssigned).toBe(tests.length);
+        expect(totalAssigned).toBe(uniqueFiles.size);
+        // totalTests still tracks individual test count
         expect(plan.totalTests).toBe(tests.length);
       }),
       { numRuns: 200 },
@@ -116,25 +119,26 @@ describe('LPTStrategy — property-based tests', () => {
     );
   });
 
-  it('maxShardDuration ≤ optimal + largest single test (LPT guarantee)', () => {
+  it('maxShardDuration ≤ optimal + largest file duration (LPT guarantee)', () => {
     fc.assert(
       fc.property(testListArb, shardCountArb, (tests, shards) => {
         const plan = strategy.balance(tests, shards);
-        const totalDuration = tests.reduce(
-          (sum, t) => sum + t.estimatedDuration,
-          0,
-        );
-        const effectiveShards = Math.min(shards, tests.length || 1);
-        const optimal = totalDuration / effectiveShards;
-        const maxSingleTest = Math.max(
-          ...tests.map((t) => t.estimatedDuration),
-          0,
-        );
 
-        // LPT guarantee: makespan ≤ optimal + p_max
-        // (This is a well-known bound for the LPT heuristic)
+        // Aggregate by file to compute file-level metrics
+        const fileMap = new Map<string, number>();
+        for (const t of tests) {
+          fileMap.set(t.file, (fileMap.get(t.file) ?? 0) + t.estimatedDuration);
+        }
+        const fileDurations = [...fileMap.values()];
+
+        const totalDuration = fileDurations.reduce((sum, d) => sum + d, 0);
+        const effectiveShards = Math.min(shards, fileDurations.length || 1);
+        const optimal = totalDuration / effectiveShards;
+        const maxFileDuration = Math.max(...fileDurations, 0);
+
+        // LPT guarantee at file granularity: makespan ≤ optimal + p_max
         expect(plan.maxShardDuration).toBeLessThanOrEqual(
-          optimal + maxSingleTest + 1, // +1 for floating point
+          optimal + maxFileDuration + 1, // +1 for floating point
         );
       }),
       { numRuns: 200 },
@@ -145,21 +149,22 @@ describe('LPTStrategy — property-based tests', () => {
 describe('RoundRobinStrategy — property-based tests', () => {
   const strategy = new RoundRobinStrategy();
 
-  it('should never lose tests', () => {
+  it('should never lose files', () => {
     fc.assert(
       fc.property(testListArb, shardCountArb, (tests, shards) => {
         const plan = strategy.balance(tests, shards);
+        const uniqueFiles = new Set(tests.map((t) => t.file));
         const totalAssigned = plan.shards.reduce(
           (sum, s) => sum + s.tests.length,
           0,
         );
-        expect(totalAssigned).toBe(tests.length);
+        expect(totalAssigned).toBe(uniqueFiles.size);
       }),
       { numRuns: 100 },
     );
   });
 
-  it('should distribute tests with at most 1 difference in count between shards', () => {
+  it('should distribute files with at most 1 difference in count between shards', () => {
     fc.assert(
       fc.property(testListArb, shardCountArb, (tests, shards) => {
         const plan = strategy.balance(tests, shards);
