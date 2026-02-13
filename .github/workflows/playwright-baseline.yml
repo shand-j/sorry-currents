@@ -7,17 +7,43 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
-env:
-  SHARD_COUNT: 3
-
 jobs:
+  # Use the same shard count as sorry-currents for a fair comparison.
+  # Count spec files to derive the matrix dynamically.
+  plan:
+    name: Count shards
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.calc.outputs.matrix }}
+      shard_total: ${{ steps.calc.outputs.shard_total }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Calculate shard count
+        id: calc
+        run: |
+          FILE_COUNT=$(find playwright-e2e/src/scenarios -name '*.spec.ts' | wc -l | tr -d ' ')
+          # Rough heuristic: ~180s serial runtime / 30s target = 6 shards (capped at 8)
+          SHARD_COUNT=$(( FILE_COUNT / 3 ))
+          if [ "$SHARD_COUNT" -lt 1 ]; then SHARD_COUNT=1; fi
+          if [ "$SHARD_COUNT" -gt 8 ]; then SHARD_COUNT=8; fi
+          echo "shard_total=$SHARD_COUNT" >> "$GITHUB_OUTPUT"
+          # Build matrix JSON
+          MATRIX="{\"include\":["
+          for i in $(seq 1 $SHARD_COUNT); do
+            [ $i -gt 1 ] && MATRIX="$MATRIX,"
+            MATRIX="$MATRIX{\"shard\":$i,\"shard_total\":$SHARD_COUNT}"
+          done
+          MATRIX="$MATRIX]}"
+          echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
+          echo "Baseline shards: $SHARD_COUNT (from $FILE_COUNT spec files)"
+
   test:
-    name: "Shard ${{ matrix.shard }}"
+    name: "Shard ${{ matrix.shard }}/${{ matrix.shard_total }}"
+    needs: plan
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
-      matrix:
-        shard: [1, 2, 3]
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -44,7 +70,7 @@ jobs:
         working-directory: playwright-e2e
       - name: Run tests (native sharding)
         working-directory: playwright-e2e
-        run: npx playwright test --config=playwright.baseline.config.ts --shard=${{ matrix.shard }}/${{ env.SHARD_COUNT }}
+        run: npx playwright test --config=playwright.baseline.config.ts --shard=${{ matrix.shard }}/${{ matrix.shard_total }}
       - name: Upload Playwright report
         if: always()
         uses: actions/upload-artifact@v4

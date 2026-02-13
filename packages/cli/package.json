@@ -1,6 +1,6 @@
 {
   "name": "@sorry-currents/cli",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "CLI-native, zero-infrastructure Playwright test orchestration with smart sharding",
   "type": "module",
   "license": "MIT",

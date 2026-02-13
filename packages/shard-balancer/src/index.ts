@@ -218,5 +218,45 @@ export function timingDataToEntries(
   }));
 }
 
+/**
+ * Calculate the optimal number of shards to hit a target wall-clock duration.
+ *
+ * Aggregates tests by file (since Playwright shards at file level), sums total
+ * estimated duration, then divides by the target. Result is clamped between 1
+ * and min(maxShards, fileCount) so we never exceed the file count or budget.
+ *
+ * Pure function — no I/O.
+ */
+export function calculateOptimalShardCount(
+  entries: readonly TestTimingEntry[],
+  targetDurationMs: number,
+  maxShards: number,
+): number {
+  if (entries.length === 0 || targetDurationMs <= 0) {
+    return 1;
+  }
+
+  // Aggregate by file — Playwright can only shard at file level
+  const fileMap = new Map<string, number>();
+  for (const entry of entries) {
+    fileMap.set(entry.file, (fileMap.get(entry.file) ?? 0) + entry.estimatedDuration);
+  }
+
+  const totalDuration = [...fileMap.values()].reduce((sum, d) => sum + d, 0);
+  const fileCount = fileMap.size;
+
+  // The longest single file is a hard floor — can't go below it no matter the shard count
+  const longestFile = Math.max(...fileMap.values());
+
+  // Ideal shard count to hit the target (but can't split a file across shards)
+  const idealCount = Math.ceil(totalDuration / targetDurationMs);
+
+  // Clamp: at least 1, at most min(maxShards, fileCount)
+  const upperBound = Math.min(maxShards, fileCount);
+  const clamped = Math.max(1, Math.min(idealCount, upperBound));
+
+  return clamped;
+}
+
 // Re-export types and strategies
 export type { ShardPlan, ShardAssignment, ShardTimingData };

@@ -16,14 +16,20 @@ import {
   getStrategy,
   listStrategies,
   timingDataToEntries,
+  calculateOptimalShardCount,
   type TestTimingEntry,
 } from '@sorry-currents/shard-balancer';
 
 /** Default estimated duration for tests with no history (30 seconds) */
 const DEFAULT_TEST_DURATION = 30_000;
 
+/** Maximum number of shards when auto-calculating */
+const DEFAULT_MAX_SHARDS = 10;
+
 interface PlanOptions {
-  readonly shards: string;
+  readonly shards?: string;
+  readonly targetDuration?: string;
+  readonly maxShards?: string;
   readonly timing: string;
   readonly output?: string;
   readonly outputMatrix?: boolean;
@@ -36,7 +42,16 @@ export function registerPlanCommand(program: Command): void {
   program
     .command('plan')
     .description('Generate an optimized shard execution plan')
-    .requiredOption('--shards <n>', 'Number of shards')
+    .option('--shards <n>', 'Number of shards (overrides --target-duration)')
+    .option(
+      '--target-duration <seconds>',
+      'Target wall-clock time per shard — auto-calculates shard count',
+    )
+    .option(
+      '--max-shards <n>',
+      'Maximum number of shards when using --target-duration',
+      String(DEFAULT_MAX_SHARDS),
+    )
     .option(
       '--timing <path>',
       'Path to timing data',
@@ -63,9 +78,22 @@ export function registerPlanCommand(program: Command): void {
         options.verbose ? LogLevel.DEBUG : LogLevel.INFO,
       );
 
-      const shardCount = parseInt(options.shards, 10);
-      if (!Number.isFinite(shardCount) || shardCount < 1) {
-        logger.error('Invalid shard count', { value: options.shards });
+      const maxShards = parseInt(options.maxShards ?? String(DEFAULT_MAX_SHARDS), 10);
+      const targetDurationMs = options.targetDuration
+        ? parseFloat(options.targetDuration) * 1000
+        : undefined;
+
+      // Validate that at least one shard sizing option is provided
+      if (!options.shards && !options.targetDuration) {
+        logger.error(
+          'Either --shards or --target-duration is required',
+          { hint: 'Use --target-duration 30 for auto-calculation or --shards 3 for a fixed count' },
+        );
+        process.exit(2);
+      }
+
+      if (targetDurationMs !== undefined && (targetDurationMs <= 0 || !Number.isFinite(targetDurationMs))) {
+        logger.error('Invalid target duration', { value: options.targetDuration });
         process.exit(2);
       }
 
@@ -80,6 +108,37 @@ export function registerPlanCommand(program: Command): void {
 
       const timingData: ShardTimingData[] = timingResult.value;
       const isColdStart = timingData.length === 0;
+
+      // Determine shard count
+      let shardCount: number;
+      if (options.shards) {
+        // Explicit override always wins
+        shardCount = parseInt(options.shards, 10);
+        if (!Number.isFinite(shardCount) || shardCount < 1) {
+          logger.error('Invalid shard count', { value: options.shards });
+          process.exit(2);
+        }
+      } else if (targetDurationMs !== undefined) {
+        if (isColdStart) {
+          // No timing data — fall back to max-shards
+          shardCount = maxShards;
+          logger.warn(
+            'Cold start with --target-duration — using --max-shards as fallback until timing data is available',
+            { maxShards },
+          );
+        } else {
+          const entries = timingDataToEntries(timingData, defaultDuration);
+          shardCount = calculateOptimalShardCount(entries, targetDurationMs, maxShards);
+          logger.info('Auto-calculated shard count', {
+            shardCount,
+            targetDuration: `${options.targetDuration}s`,
+            maxShards,
+          });
+        }
+      } else {
+        // Should be unreachable due to earlier validation
+        shardCount = 1;
+      }
 
       if (isColdStart) {
         logger.warn(

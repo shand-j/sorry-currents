@@ -7,20 +7,15 @@ on:
     branches: [main, master]
   workflow_dispatch:
 
-env:
-  SHARD_COUNT: 3
-
 jobs:
-  test:
-    name: "Shard ${{ matrix.shardIndex }}"
+  # ───────────────────────────────────────────────
+  # 1. Lightweight plan job — determines shard count
+  # ───────────────────────────────────────────────
+  plan:
+    name: Plan shards
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        shardIndex: [1, 2, 3]
-    env:
-      SORRY_CURRENTS_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
-      SORRY_CURRENTS_SHARD_TOTAL: 3
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -31,20 +26,6 @@ jobs:
       - name: Install dependencies
         working-directory: playwright-e2e
         run: npm ci
-      - name: Cache Playwright browsers
-        id: pw-cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/ms-playwright
-          key: pw-browsers-${{ hashFiles('playwright-e2e/package-lock.json') }}
-      - name: Install Playwright browsers
-        if: steps.pw-cache.outputs.cache-hit != 'true'
-        working-directory: playwright-e2e
-        run: npx playwright install --with-deps chromium
-      - name: Install Playwright system deps (cache hit)
-        if: steps.pw-cache.outputs.cache-hit == 'true'
-        run: npx playwright install-deps chromium
-        working-directory: playwright-e2e
       - name: Download previous timing data
         continue-on-error: true
         env:
@@ -73,18 +54,64 @@ jobs:
           unzip -o /tmp/timing.zip -d playwright-e2e/.sorry-currents/
           echo "Timing data restored"
       - name: Generate shard plan
+        id: plan
         working-directory: playwright-e2e
-        run: npx @sorry-currents/cli plan --shards ${{ env.SHARD_COUNT }}
+        run: npx @sorry-currents/cli plan --target-duration 30 --max-shards 8 --output-matrix
+      - name: Upload shard plan
+        uses: actions/upload-artifact@v4
+        with:
+          name: sorry-currents-plan
+          path: playwright-e2e/.sorry-currents/shard-plan.json
+          retention-days: 1
+
+  # ───────────────────────────────────────────────
+  # 2. Dynamic test matrix — shard count determined by plan
+  # ───────────────────────────────────────────────
+  test:
+    name: "Shard ${{ matrix.shardIndex }}/${{ matrix.shardTotal }}"
+    needs: plan
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    env:
+      SORRY_CURRENTS_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+      SORRY_CURRENTS_SHARD_TOTAL: ${{ matrix.shardTotal }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: playwright-e2e/package-lock.json
+      - name: Install dependencies
+        working-directory: playwright-e2e
+        run: npm ci
+      - name: Cache Playwright browsers
+        id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: pw-browsers-${{ hashFiles('playwright-e2e/package-lock.json') }}
+      - name: Install Playwright browsers
+        if: steps.pw-cache.outputs.cache-hit != 'true'
+        working-directory: playwright-e2e
+        run: npx playwright install --with-deps chromium
+      - name: Install Playwright system deps (cache hit)
+        if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
+        working-directory: playwright-e2e
+      - name: Download shard plan
+        uses: actions/download-artifact@v4
+        with:
+          name: sorry-currents-plan
+          path: playwright-e2e/.sorry-currents/
       - name: Run tests
         working-directory: playwright-e2e
         run: |
-          if [ -f .sorry-currents/shard-plan.json ]; then
-            npx @sorry-currents/cli run \
-              --shard-plan .sorry-currents/shard-plan.json \
-              --shard-index ${{ matrix.shardIndex }}
-          else
-            npx @sorry-currents/cli run --shard-index ${{ matrix.shardIndex }}
-          fi
+          npx @sorry-currents/cli run \
+            --shard-plan .sorry-currents/shard-plan.json \
+            --shard-index ${{ matrix.shardIndex }}
       - name: Upload shard results
         if: always()
         uses: actions/upload-artifact@v4
@@ -93,6 +120,9 @@ jobs:
           path: playwright-e2e/.sorry-currents/runs/
           retention-days: 7
 
+  # ───────────────────────────────────────────────
+  # 3. Merge results + generate report
+  # ───────────────────────────────────────────────
   report:
     name: Merge & report
     needs: test

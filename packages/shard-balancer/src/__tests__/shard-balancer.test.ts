@@ -7,6 +7,7 @@ import {
   getStrategy,
   listStrategies,
   timingDataToEntries,
+  calculateOptimalShardCount,
   type TestTimingEntry,
 } from '../index.js';
 
@@ -266,5 +267,85 @@ describe('timingDataToEntries', () => {
   it('should handle empty input', () => {
     const entries = timingDataToEntries([], 10_000);
     expect(entries).toHaveLength(0);
+  });
+});
+
+describe('calculateOptimalShardCount', () => {
+  it('should calculate shards to hit target duration', () => {
+    // 4 files totaling 120s, target 30s per shard → 4 shards
+    const entries: TestTimingEntry[] = [
+      { testId: 'a1', file: 'a.spec.ts', estimatedDuration: 40_000 },
+      { testId: 'b1', file: 'b.spec.ts', estimatedDuration: 30_000 },
+      { testId: 'c1', file: 'c.spec.ts', estimatedDuration: 30_000 },
+      { testId: 'd1', file: 'd.spec.ts', estimatedDuration: 20_000 },
+    ];
+    const result = calculateOptimalShardCount(entries, 30_000, 10);
+    expect(result).toBe(4);
+  });
+
+  it('should round up fractional shard count', () => {
+    // 2 files totaling 50s, target 30s → ceil(50/30)=2
+    const entries: TestTimingEntry[] = [
+      { testId: 'a1', file: 'a.spec.ts', estimatedDuration: 30_000 },
+      { testId: 'b1', file: 'b.spec.ts', estimatedDuration: 20_000 },
+    ];
+    const result = calculateOptimalShardCount(entries, 30_000, 10);
+    expect(result).toBe(2);
+  });
+
+  it('should cap at maxShards', () => {
+    // 10 files totaling 300s, target 10s → ideal 30, but max is 5
+    const entries: TestTimingEntry[] = Array.from({ length: 10 }, (_, i) => ({
+      testId: `t${i}`,
+      file: `file${i}.spec.ts`,
+      estimatedDuration: 30_000,
+    }));
+    const result = calculateOptimalShardCount(entries, 10_000, 5);
+    expect(result).toBe(5);
+  });
+
+  it('should cap at file count when fewer files than maxShards', () => {
+    // 3 files totaling 90s, target 10s → ideal 9, but only 3 files
+    const entries: TestTimingEntry[] = [
+      { testId: 'a1', file: 'a.spec.ts', estimatedDuration: 30_000 },
+      { testId: 'b1', file: 'b.spec.ts', estimatedDuration: 30_000 },
+      { testId: 'c1', file: 'c.spec.ts', estimatedDuration: 30_000 },
+    ];
+    const result = calculateOptimalShardCount(entries, 10_000, 10);
+    expect(result).toBe(3);
+  });
+
+  it('should aggregate multiple tests from same file', () => {
+    // 2 files: file-a has 3 tests totaling 60s, file-b has 1 test at 20s
+    // Total 80s, target 30s → ceil(80/30) = 3, but only 2 files → 2
+    const entries: TestTimingEntry[] = [
+      { testId: 'a1', file: 'a.spec.ts', estimatedDuration: 20_000 },
+      { testId: 'a2', file: 'a.spec.ts', estimatedDuration: 20_000 },
+      { testId: 'a3', file: 'a.spec.ts', estimatedDuration: 20_000 },
+      { testId: 'b1', file: 'b.spec.ts', estimatedDuration: 20_000 },
+    ];
+    const result = calculateOptimalShardCount(entries, 30_000, 10);
+    expect(result).toBe(2);
+  });
+
+  it('should return 1 for empty entries', () => {
+    expect(calculateOptimalShardCount([], 30_000, 10)).toBe(1);
+  });
+
+  it('should return 1 for zero target duration', () => {
+    const entries: TestTimingEntry[] = [
+      { testId: 'a1', file: 'a.spec.ts', estimatedDuration: 10_000 },
+    ];
+    expect(calculateOptimalShardCount(entries, 0, 10)).toBe(1);
+  });
+
+  it('should return 1 when total duration fits in target', () => {
+    // Total 20s, target 60s → ceil(20/60) = 1
+    const entries: TestTimingEntry[] = [
+      { testId: 'a1', file: 'a.spec.ts', estimatedDuration: 10_000 },
+      { testId: 'b1', file: 'b.spec.ts', estimatedDuration: 10_000 },
+    ];
+    const result = calculateOptimalShardCount(entries, 60_000, 10);
+    expect(result).toBe(1);
   });
 });
