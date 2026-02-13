@@ -1,8 +1,11 @@
 import { test, expect } from '@playwright/test';
 
+const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+
 /**
  * Interactive todo app tests using an inline mini-app.
  * Exercises complex DOM manipulation, event handling, and state assertions.
+ * Delays: 300-1500ms per test (~5s total file weight).
  */
 
 const TODO_APP_HTML = `
@@ -82,6 +85,7 @@ test.describe('Todo App', () => {
   });
 
   test('should add a todo item', async ({ page }) => {
+    await delay(300);
     await page.fill('#newTodo', 'Write tests');
     await page.click('#addBtn');
 
@@ -92,6 +96,7 @@ test.describe('Todo App', () => {
   });
 
   test('should add multiple todo items', async ({ page }) => {
+    await delay(1500);
     const todos = ['Write tests', 'Fix bugs', 'Deploy'];
     for (const todo of todos) {
       await page.fill('#newTodo', todo);
@@ -103,6 +108,7 @@ test.describe('Todo App', () => {
   });
 
   test('should not add empty todo', async ({ page }) => {
+    await delay(400);
     await page.fill('#newTodo', '   ');
     await page.click('#addBtn');
 
@@ -110,6 +116,7 @@ test.describe('Todo App', () => {
   });
 
   test('should mark todo as complete', async ({ page }) => {
+    await delay(700);
     await page.fill('#newTodo', 'Review PR');
     await page.click('#addBtn');
 
@@ -120,6 +127,7 @@ test.describe('Todo App', () => {
   });
 
   test('should delete a todo item', async ({ page }) => {
+    await delay(500);
     await page.fill('#newTodo', 'Temporary task');
     await page.click('#addBtn');
     await expect(page.locator('.todo-item')).toHaveCount(1);
@@ -130,6 +138,7 @@ test.describe('Todo App', () => {
   });
 
   test('should filter active todos', async ({ page }) => {
+    await delay(1000);
     await page.fill('#newTodo', 'Active task');
     await page.click('#addBtn');
     await page.fill('#newTodo', 'Done task');
@@ -147,6 +156,7 @@ test.describe('Todo App', () => {
   });
 
   test('should filter completed todos', async ({ page }) => {
+    await delay(800);
     await page.fill('#newTodo', 'Pending');
     await page.click('#addBtn');
     await page.fill('#newTodo', 'Finished');

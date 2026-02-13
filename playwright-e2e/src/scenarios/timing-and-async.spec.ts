@@ -1,9 +1,11 @@
 import { test, expect } from '@playwright/test';
 
+const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+
 /**
  * Tests with varying execution durations and async behavior.
- * Important for shard balancing — tests with different durations
- * exercise the LPT algorithm's ability to distribute evenly.
+ * Heaviest test file — delays: 2-5s per test (~18s total file weight).
+ * The LPT shard balancer should isolate this file on its own shard.
  */
 test.describe('Timing and Async', () => {
   test('should handle delayed content appearance', async ({ page }) => {
@@ -17,6 +19,7 @@ test.describe('Timing and Async', () => {
 
     await page.click('button');
     await expect(page.locator('#msg')).toHaveText('Loaded!', { timeout: 2000 });
+    await delay(2000);
   });
 
   test('should wait for animation to complete', async ({ page }) => {
@@ -35,6 +38,7 @@ test.describe('Timing and Async', () => {
 
     await page.click('button');
     await expect(page.locator('#status')).toHaveText('Complete', { timeout: 3000 });
+    await delay(3000);
   });
 
   test('should handle rapid sequential updates', async ({ page }) => {
@@ -54,6 +58,7 @@ test.describe('Timing and Async', () => {
 
     await page.click('button');
     await expect(page.locator('#counter')).toHaveText('10', { timeout: 2000 });
+    await delay(4000);
   });
 
   test('should handle multiple concurrent timers', async ({ page }) => {
@@ -72,6 +77,7 @@ test.describe('Timing and Async', () => {
     await expect(page.locator('#a')).toHaveText('done', { timeout: 2000 });
     await expect(page.locator('#b')).toHaveText('done', { timeout: 2000 });
     await expect(page.locator('#c')).toHaveText('done', { timeout: 2000 });
+    await delay(5000);
   });
 
   test('should measure approximate timing', async ({ page }) => {
@@ -92,5 +98,6 @@ test.describe('Timing and Async', () => {
     const elapsed = Number(await page.locator('#elapsed').textContent());
     expect(elapsed).toBeGreaterThanOrEqual(250);
     expect(elapsed).toBeLessThan(1000);
+    await delay(3500);
   });
 });

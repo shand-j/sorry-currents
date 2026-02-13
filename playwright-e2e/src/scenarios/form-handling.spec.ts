@@ -1,11 +1,15 @@
 import { test, expect } from '@playwright/test';
 
+const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+
 /**
  * Form interaction tests using inline HTML forms.
  * Exercises fill, select, checkbox, and form submission workflows.
+ * Delays: 500-2000ms per test (~6s total file weight).
  */
 test.describe('Form Handling', () => {
   test('should fill text inputs', async ({ page }) => {
+    await delay(800);
     await page.setContent(`
       <form>
         <input id="name" type="text" placeholder="Full name" />
@@ -24,6 +28,7 @@ test.describe('Form Handling', () => {
   });
 
   test('should select dropdown option', async ({ page }) => {
+    await delay(500);
     await page.setContent(`
       <select id="priority">
         <option value="">-- Select --</option>
@@ -42,6 +47,7 @@ test.describe('Form Handling', () => {
   });
 
   test('should check and uncheck checkbox', async ({ page }) => {
+    await delay(1200);
     await page.setContent(`
       <label>
         <input id="agree" type="checkbox" /> I agree to the terms
@@ -62,6 +68,7 @@ test.describe('Form Handling', () => {
   });
 
   test('should submit form and verify output', async ({ page }) => {
+    await delay(2000);
     await page.setContent(`
       <form id="loginForm" onsubmit="event.preventDefault();
         document.getElementById('result').textContent =
@@ -81,6 +88,7 @@ test.describe('Form Handling', () => {
   });
 
   test('should validate required fields', async ({ page }) => {
+    await delay(1500);
     await page.setContent(`
       <form id="contactForm" onsubmit="event.preventDefault();
         var name = document.getElementById('fname').value;

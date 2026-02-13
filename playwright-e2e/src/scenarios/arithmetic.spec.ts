@@ -3,7 +3,8 @@ import { test, expect } from '@playwright/test';
 /**
  * Pure computation tests — no DOM interaction needed.
  * Exercises Playwright's expect API with fast execution times.
- * Good baseline for shard balancing (consistently fast tests).
+ * Deliberately kept fast (~50ms each) to contrast with heavier test files.
+ * The LPT shard balancer should group these together on a lighter shard.
  */
 test.describe('Arithmetic Operations', () => {
   test('should add numbers correctly', async () => {

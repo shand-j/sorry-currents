@@ -1,11 +1,15 @@
 import { test, expect } from '@playwright/test';
 
+const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+
 /**
  * Basic DOM interaction tests using page.setContent().
  * Fully self-contained — no network requests.
+ * Delays: 200-800ms per test (~3s total file weight).
  */
 test.describe('DOM Interaction', () => {
   test('should find element by text', async ({ page }) => {
+    await delay(300);
     await page.setContent('<h1>Welcome to Sorry Currents</h1><p>Test orchestration made simple.</p>');
 
     await expect(page.getByText('Welcome to Sorry Currents')).toBeVisible();
@@ -13,6 +17,7 @@ test.describe('DOM Interaction', () => {
   });
 
   test('should click a button and verify state change', async ({ page }) => {
+    await delay(500);
     await page.setContent(`
       <button id="toggle" onclick="document.getElementById('status').textContent = 'Active'">
         Activate
@@ -26,6 +31,7 @@ test.describe('DOM Interaction', () => {
   });
 
   test('should toggle visibility', async ({ page }) => {
+    await delay(200);
     await page.setContent(`
       <button onclick="document.getElementById('panel').style.display =
         document.getElementById('panel').style.display === 'none' ? 'block' : 'none'">
@@ -42,6 +48,7 @@ test.describe('DOM Interaction', () => {
   });
 
   test('should count list items', async ({ page }) => {
+    await delay(800);
     await page.setContent(`
       <ul id="fruits">
         <li>Apple</li>
@@ -59,6 +66,7 @@ test.describe('DOM Interaction', () => {
   });
 
   test('should read and verify attributes', async ({ page }) => {
+    await delay(400);
     await page.setContent(`
       <a id="link" href="https://example.com" target="_blank" data-testid="main-link">
         Example Link
@@ -73,6 +81,7 @@ test.describe('DOM Interaction', () => {
   });
 
   test('should handle nested elements', async ({ page }) => {
+    await delay(600);
     await page.setContent(`
       <div class="card">
         <div class="card-header">

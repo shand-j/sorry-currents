@@ -1,11 +1,14 @@
 import { test, expect } from '@playwright/test';
 
+const delay = (ms: number) => new Promise(r => setTimeout(r, ms));
+
 /**
  * Tests that exercise keyboard input, focus, and advanced interactions.
- * Provides variety in test types for comprehensive reporter coverage.
+ * Delays: 300-1200ms per test (~3s total file weight).
  */
 test.describe('Keyboard and Focus', () => {
   test('should type with keyboard events', async ({ page }) => {
+    await delay(600);
     await page.setContent(`
       <input id="search" type="text"
         onkeyup="document.getElementById('preview').textContent = this.value.toUpperCase()" />
@@ -17,6 +20,7 @@ test.describe('Keyboard and Focus', () => {
   });
 
   test('should handle Enter key submission', async ({ page }) => {
+    await delay(1200);
     await page.setContent(`
       <input id="cmd" type="text"
         onkeydown="if(event.key==='Enter'){
@@ -33,6 +37,7 @@ test.describe('Keyboard and Focus', () => {
   });
 
   test('should handle tab navigation between fields', async ({ page }) => {
+    await delay(300);
     await page.setContent(`
       <input id="field1" type="text" onfocus="this.classList.add('focused')" onblur="this.classList.remove('focused')" />
       <input id="field2" type="text" onfocus="this.classList.add('focused')" onblur="this.classList.remove('focused')" />
@@ -48,6 +53,7 @@ test.describe('Keyboard and Focus', () => {
   });
 
   test('should handle radio button selection', async ({ page }) => {
+    await delay(900);
     await page.setContent(`
       <form id="shardConfig">
         <label><input type="radio" name="strategy" value="lpt" /> LPT</label>
