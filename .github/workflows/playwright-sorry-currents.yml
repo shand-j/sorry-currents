@@ -49,11 +49,34 @@ jobs:
           key: build-${{ github.sha }}
       - run: pnpm install --frozen-lockfile
       - name: Download previous timing data
-        uses: actions/download-artifact@v4
-        with:
-          name: sorry-currents-timing
-          path: playwright-e2e/.sorry-currents/
         continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p playwright-e2e/.sorry-currents
+          # Find the most recent successful workflow run (excluding current)
+          RUN_ID=$(gh api \
+            "repos/${{ github.repository }}/actions/workflows/playwright-sorry-currents.yml/runs?status=completed&per_page=5" \
+            --jq ".workflow_runs[0].id // empty")
+          if [ -z "$RUN_ID" ]; then
+            echo "No previous runs found — cold start"
+            exit 0
+          fi
+          echo "Found previous run: $RUN_ID"
+          # Find the timing artifact in that run
+          ARTIFACT_ID=$(gh api \
+            "repos/${{ github.repository }}/actions/runs/$RUN_ID/artifacts" \
+            --jq '.artifacts[] | select(.name == "sorry-currents-timing") | .id // empty')
+          if [ -z "$ARTIFACT_ID" ]; then
+            echo "No timing artifact in run $RUN_ID — cold start"
+            exit 0
+          fi
+          echo "Downloading timing artifact $ARTIFACT_ID"
+          gh api \
+            "repos/${{ github.repository }}/actions/artifacts/$ARTIFACT_ID/zip" \
+            > /tmp/timing.zip
+          unzip -o /tmp/timing.zip -d playwright-e2e/.sorry-currents/
+          echo "Timing data restored"
       - name: Generate shard plan
         id: plan
         working-directory: playwright-e2e
