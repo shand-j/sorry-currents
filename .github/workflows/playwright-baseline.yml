@@ -1,0 +1,41 @@
+name: "Playwright — baseline (no sorry-currents)"
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  SHARD_COUNT: 3
+
+jobs:
+  test:
+    name: "Shard ${{ matrix.shard }}"
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Playwright browsers
+        working-directory: playwright-e2e
+        run: npx playwright install --with-deps chromium
+      - name: Run tests (native sharding)
+        working-directory: playwright-e2e
+        run: npx playwright test --config=playwright.baseline.config.ts --shard=${{ matrix.shard }}/${{ env.SHARD_COUNT }}
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: baseline-playwright-report-${{ matrix.shard }}
+          path: playwright-e2e/artifacts/report/
+          retention-days: 7

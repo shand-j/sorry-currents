@@ -1,0 +1,31 @@
+{
+  "name": "sorry-currents",
+  "version": "0.1.0",
+  "type": "module",
+  "bin": {
+    "sorry-currents": "./dist/index.js"
+  },
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts",
+    "typecheck": "tsc --noEmit",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@sorry-currents/core": "workspace:*",
+    "@sorry-currents/shard-balancer": "workspace:*",
+    "@sorry-currents/html-report": "workspace:*",
+    "commander": "^13.0.0",
+    "chalk": "^5.4.0",
+    "ora": "^8.0.0",
+    "cli-table3": "^0.6.0",
+    "js-yaml": "^4.1.0",
+    "@octokit/rest": "^21.0.0"
+  }
+}

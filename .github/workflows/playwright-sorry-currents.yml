@@ -1,0 +1,153 @@
+name: "Playwright — sorry-currents sharding"
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+  workflow_dispatch:
+
+env:
+  SHARD_COUNT: 3
+
+jobs:
+  build:
+    name: Build packages
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm -r --filter '!playwright-e2e' build
+      - name: Cache build output
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            packages/*/dist
+            node_modules
+            playwright-e2e/node_modules
+          key: build-${{ github.sha }}
+
+  plan:
+    name: Generate shard plan
+    needs: build
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+      - name: Restore build
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            packages/*/dist
+            node_modules
+            playwright-e2e/node_modules
+          key: build-${{ github.sha }}
+      - name: Download previous timing data
+        uses: actions/download-artifact@v4
+        with:
+          name: sorry-currents-timing
+          path: playwright-e2e/.sorry-currents/
+        continue-on-error: true
+      - name: Generate shard plan
+        id: plan
+        working-directory: playwright-e2e
+        run: npx sorry-currents plan --shards ${{ env.SHARD_COUNT }} --output-matrix
+
+  test:
+    name: "Shard ${{ matrix.shardIndex }}/${{ env.SHARD_COUNT }}"
+    needs: [build, plan]
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    env:
+      SORRY_CURRENTS_RUN_ID: ${{ github.run_id }}-${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+      - name: Restore build
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            packages/*/dist
+            node_modules
+            playwright-e2e/node_modules
+          key: build-${{ github.sha }}
+      - name: Install Playwright browsers
+        working-directory: playwright-e2e
+        run: npx playwright install --with-deps chromium
+      - name: Run tests
+        working-directory: playwright-e2e
+        run: >-
+          npx sorry-currents run
+          --shard-plan .sorry-currents/shard-plan.json
+          --shard-index ${{ matrix.shardIndex }}
+      - name: Upload shard results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sorry-currents-shard-${{ matrix.shardIndex }}
+          path: playwright-e2e/.sorry-currents/runs/
+          retention-days: 7
+
+  report:
+    name: Merge & report
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: pnpm
+      - name: Restore build
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            packages/*/dist
+            node_modules
+            playwright-e2e/node_modules
+          key: build-${{ github.sha }}
+      - name: Download all shard results
+        uses: actions/download-artifact@v4
+        with:
+          pattern: sorry-currents-shard-*
+          path: playwright-e2e/.sorry-currents/shards/
+      - name: Merge shard results
+        working-directory: playwright-e2e
+        run: npx sorry-currents merge
+      - name: Generate HTML report
+        working-directory: playwright-e2e
+        run: npx sorry-currents report --format html
+      - name: Upload HTML report
+        uses: actions/upload-artifact@v4
+        with:
+          name: sorry-currents-html-report
+          path: playwright-e2e/.sorry-currents/report/
+          retention-days: 30
+      - name: Upload timing data for next run
+        uses: actions/upload-artifact@v4
+        with:
+          name: sorry-currents-timing
+          path: playwright-e2e/.sorry-currents/timing-data.json
+          retention-days: 90
+      - name: Print summary
+        working-directory: playwright-e2e
+        run: npx sorry-currents report --format markdown

@@ -1,0 +1,7 @@
+node_modules/
+output/
+dist/
+artifacts/
+test-results/
+.sorry-currents/
+zerostep.config.json
