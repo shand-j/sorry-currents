@@ -65,7 +65,7 @@ jobs:
         run: npx sorry-currents plan --shards ${{ env.SHARD_COUNT }} --output-matrix
 
   test:
-    name: "Shard ${{ matrix.shardIndex }}/3"
+    name: "Shard ${{ matrix.shardIndex }}"
     needs: [build, plan]
     runs-on: ubuntu-latest
     strategy:
