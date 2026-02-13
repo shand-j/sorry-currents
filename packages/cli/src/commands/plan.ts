@@ -172,9 +172,27 @@ export function registerPlanCommand(program: Command): void {
       // Convert timing data to entries
       let entries: TestTimingEntry[];
       if (isColdStart) {
-        // Cold start: we have no test list. Output a simple matrix and let
-        // Playwright's native --shard handle distribution.
-        if (options.outputMatrix) {
+        // Cold start: we have no test list.
+        // If --test-dir is provided, discover files and create entries so the
+        // balancer can distribute them properly even without timing data.
+        if (options.testDir) {
+          const discoveredFiles = await discoverTestFiles(options.testDir);
+          entries = discoveredFiles.map(file => ({
+            testId: `discovered:${file}`,
+            file,
+            estimatedDuration: defaultDuration,
+          }));
+          logger.info('Cold start — discovered test files from disk', {
+            files: discoveredFiles.length,
+            defaultDuration: formatDuration(defaultDuration),
+          });
+          // Recalculate shard count using discovered file count
+          if (!options.shards && targetDurationMs !== undefined) {
+            shardCount = calculateOptimalShardCount(entries, targetDurationMs, maxShards);
+            logger.info('Auto-calculated shard count from discovered files', { shardCount });
+          }
+        } else if (options.outputMatrix) {
+          // No --test-dir, output simple matrix for native Playwright sharding
           const matrix = {
             include: Array.from({ length: shardCount }, (_, i) => ({
               shardIndex: i + 1,
@@ -212,14 +230,14 @@ export function registerPlanCommand(program: Command): void {
           logger.info('Cold start shard plan written', { path: planPath });
 
           return;
+        } else {
+          // For non-matrix output, create placeholder entries
+          entries = Array.from({ length: shardCount }, (_, i) => ({
+            testId: `placeholder-${i}`,
+            file: `shard-${i + 1}`,
+            estimatedDuration: defaultDuration,
+          }));
         }
-
-        // For non-matrix output, create placeholder entries
-        entries = Array.from({ length: shardCount }, (_, i) => ({
-          testId: `placeholder-${i}`,
-          file: `shard-${i + 1}`,
-          estimatedDuration: defaultDuration,
-        }));
       } else {
         entries = timingDataToEntries(timingData, defaultDuration);
 
