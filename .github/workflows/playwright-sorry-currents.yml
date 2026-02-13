@@ -175,11 +175,13 @@ jobs:
           path: playwright-e2e/.sorry-currents/report/
           retention-days: 30
       - name: Upload timing data for next run
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: sorry-currents-timing
           path: playwright-e2e/.sorry-currents/timing-data.json
           retention-days: 90
+          if-no-files-found: warn
       - name: Print summary
         working-directory: playwright-e2e
         run: npx sorry-currents report --format markdown

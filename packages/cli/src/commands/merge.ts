@@ -13,6 +13,10 @@ import {
   ok,
   err,
   type Result,
+  updateTimingData,
+  readTimingData,
+  writeTimingData,
+  DEFAULT_TIMING_DATA_PATH,
 } from '@sorry-currents/core';
 
 const DEFAULT_INPUT_DIR = '.sorry-currents/shards';
@@ -130,6 +134,22 @@ export function registerMergeCommand(program: Command): void {
       const outputPath = pathJoin(options.output, 'merged-run-result.json');
       await mkdir(options.output, { recursive: true });
       await fsWriteFile(outputPath, JSON.stringify(merged, null, 2) + '\n', 'utf-8');
+
+      // Generate timing-data.json from merged results for next run's shard balancer
+      const timingDataPath = pathJoin(options.output, 'timing-data.json');
+      const existingTimingResult = await readTimingData(timingDataPath);
+      const existingTiming = existingTimingResult.ok ? existingTimingResult.value : [];
+      const updatedTiming = updateTimingData(existingTiming, merged.tests);
+      const timingWriteResult = await writeTimingData(timingDataPath, updatedTiming);
+
+      if (timingWriteResult.ok) {
+        logger.info('Timing data generated', {
+          path: timingDataPath,
+          tests: updatedTiming.length,
+        });
+      } else {
+        logger.warn('Failed to write timing data', timingWriteResult.error.context);
+      }
 
       logger.info('Merge complete', {
         output: outputPath,
