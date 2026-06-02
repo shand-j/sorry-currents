@@ -9,7 +9,6 @@ import {
   LogLevel,
   RunResultSchema,
   AppError,
-  ErrorCode,
   formatDuration,
   buildGitHubCommentBody,
   getCommentMarker,
@@ -29,10 +28,20 @@ interface NotifyOptions {
   readonly githubStatus?: boolean;
   readonly slack?: string;
   readonly webhook?: string;
+  readonly datadog?: boolean;
   readonly input?: string;
   readonly reportUrl?: string;
   readonly format?: string;
   readonly verbose?: boolean;
+}
+
+interface DatadogSeriesPayload {
+  readonly series: readonly {
+    readonly metric: string;
+    readonly points: readonly [number, number][];
+    readonly type: 'gauge' | 'count';
+    readonly tags?: readonly string[];
+  }[];
 }
 
 /**
@@ -64,6 +73,14 @@ async function resolvePrNumber(runResult: RunResult, logger: Logger): Promise<nu
   }
 
   try {
+    const stats = await import('node:fs/promises').then((m) => m.stat(eventPath));
+    const MAX_EVENT_SIZE = 10 * 1024 * 1024; // 10 MB
+    if (stats.size > MAX_EVENT_SIZE) {
+      logger.warn('GitHub event file too large; skipping PR number resolution', {
+        size: stats.size,
+      });
+      return undefined;
+    }
     const raw = await readFile(eventPath, 'utf-8');
     const event = JSON.parse(raw) as Record<string, unknown>;
     const pr = event['pull_request'] as Record<string, unknown> | undefined;
@@ -88,10 +105,7 @@ async function resolvePrNumber(runResult: RunResult, logger: Logger): Promise<nu
  * Send a GitHub PR comment using @octokit/rest.
  * Updates existing sorry-currents comment if found, otherwise creates a new one.
  */
-async function sendGitHubComment(
-  payload: GitHubCommentPayload,
-  logger: Logger,
-): Promise<void> {
+async function sendGitHubComment(payload: GitHubCommentPayload, logger: Logger): Promise<void> {
   const token = process.env['GITHUB_TOKEN'];
   if (!token) {
     throw AppError.githubApiError(
@@ -107,14 +121,26 @@ async function sendGitHubComment(
   const marker = getCommentMarker();
 
   // Look for an existing sorry-currents comment to update
-  const { data: comments } = await octokit.issues.listComments({
-    owner: payload.owner,
-    repo: payload.repo,
-    issue_number: payload.issueNumber,
-    per_page: 100,
-  });
+  // Paginate through all comments to find existing sorry-currents comment
+  const allComments: Array<{ id: number; body?: string | null }> = [];
+  let page = 1;
+  const perPage = 100;
+  while (true) {
+    const { data: comments } = await octokit.issues.listComments({
+      owner: payload.owner,
+      repo: payload.repo,
+      issue_number: payload.issueNumber,
+      per_page: perPage,
+      page,
+    });
+    allComments.push(...comments);
+    if (comments.length < perPage) break;
+    page++;
+  }
 
-  const existing = comments.find((c) => c.body?.includes(marker));
+  const existing = allComments.find((c: { id: number; body?: string | null }) =>
+    c.body?.includes(marker),
+  );
 
   if (existing) {
     await octokit.issues.updateComment({
@@ -144,10 +170,7 @@ async function sendGitHubComment(
 /**
  * Set a GitHub commit status check using @octokit/rest.
  */
-async function sendGitHubStatus(
-  payload: GitHubStatusPayload,
-  logger: Logger,
-): Promise<void> {
+async function sendGitHubStatus(payload: GitHubStatusPayload, logger: Logger): Promise<void> {
   const token = process.env['GITHUB_TOKEN'];
   if (!token) {
     throw AppError.githubApiError(
@@ -188,14 +211,15 @@ async function sendSlackWebhook(
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(30_000),
   });
 
   if (!response.ok) {
     const body = await response.text().catch(() => 'unknown');
-    throw AppError.slackWebhookError(
-      `Slack webhook returned ${response.status}: ${body}`,
-      { url: webhookUrl, status: response.status },
-    );
+    throw AppError.slackWebhookError(`Slack webhook returned ${response.status}: ${body}`, {
+      url: webhookUrl,
+      status: response.status,
+    });
   }
 
   logger.info('Slack notification sent');
@@ -204,18 +228,15 @@ async function sendSlackWebhook(
 /**
  * POST run results to a generic webhook endpoint using native fetch.
  */
-async function sendWebhook(
-  url: string,
-  payload: WebhookPayload,
-  logger: Logger,
-): Promise<void> {
+async function sendWebhook(url: string, payload: WebhookPayload, logger: Logger): Promise<void> {
   const response = await fetch(url, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'User-Agent': 'sorry-currents/0.1.0',
+      'User-Agent': 'sorry-currents/0.5.0',
     },
     body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(30_000),
   });
 
   if (!response.ok) {
@@ -226,6 +247,88 @@ async function sendWebhook(
   logger.info('Webhook notification sent', { url, status: response.status });
 }
 
+function buildDatadogPayload(runResult: RunResult, tags: readonly string[]): DatadogSeriesPayload {
+  const timestamp = Math.floor(Date.now() / 1000);
+  const statusValue = runResult.status === 'passed' ? 1 : 0;
+
+  return {
+    series: [
+      {
+        metric: 'sorry_currents.run.duration_ms',
+        points: [[timestamp, runResult.duration]],
+        type: 'gauge',
+        tags,
+      },
+      {
+        metric: 'sorry_currents.run.total_tests',
+        points: [[timestamp, runResult.totalTests]],
+        type: 'gauge',
+        tags,
+      },
+      {
+        metric: 'sorry_currents.run.failed_tests',
+        points: [[timestamp, runResult.failedTests]],
+        type: 'gauge',
+        tags,
+      },
+      {
+        metric: 'sorry_currents.run.flaky_tests',
+        points: [[timestamp, runResult.flakyTests]],
+        type: 'gauge',
+        tags,
+      },
+      {
+        metric: 'sorry_currents.run.status',
+        points: [[timestamp, statusValue]],
+        type: 'gauge',
+        tags,
+      },
+    ],
+  };
+}
+
+async function sendDatadogMetrics(runResult: RunResult, logger: Logger): Promise<void> {
+  const apiKey = process.env['DD_API_KEY'];
+  if (!apiKey) {
+    throw AppError.invalidConfig('DD_API_KEY environment variable is required for --datadog', {
+      hint: 'Set DD_API_KEY in your CI or local environment',
+    });
+  }
+
+  const site = process.env['DD_SITE'] ?? 'datadoghq.com';
+  const endpoint = `https://api.${site}/api/v1/series`;
+
+  const baseTags = [
+    `status:${runResult.status}`,
+    `branch:${runResult.git.branch || 'unknown'}`,
+    `ci:${runResult.environment.ci || 'local'}`,
+  ];
+  const extraTags = (process.env['DD_TAGS'] ?? '')
+    .split(',')
+    .map((t) => t.trim())
+    .filter((t) => t.length > 0);
+  const tags = [...baseTags, ...extraTags];
+
+  const payload = buildDatadogPayload(runResult, tags);
+
+  const response = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'DD-API-KEY': apiKey,
+    },
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  if (!response.ok) {
+    const body = await response.text().catch(() => 'unknown');
+    throw AppError.networkError(endpoint, new Error(`HTTP ${response.status}: ${body}`));
+  }
+
+  logger.info('Datadog metrics sent', { site, series: payload.series.length });
+}
+
 export function registerNotifyCommand(program: Command): void {
   program
     .command('notify')
@@ -234,18 +337,24 @@ export function registerNotifyCommand(program: Command): void {
     .option('--github-status', 'Set commit status check (requires GITHUB_TOKEN)')
     .option('--slack <webhook-url>', 'Post summary to Slack webhook')
     .option('--webhook <url>', 'POST results to arbitrary HTTP endpoint')
+    .option('--datadog', 'Send run summary metrics to Datadog (requires DD_API_KEY)')
     .option('--input <dir>', 'Results directory', '.sorry-currents')
     .option('--report-url <url>', 'URL to the full HTML report artifact')
     .option('--format <type>', 'Output format: text | json', 'text')
     .option('--verbose', 'Enable debug logging')
     .action(async (options: NotifyOptions) => {
-      const logger = new ConsoleLogger(
-        options.verbose ? LogLevel.DEBUG : LogLevel.INFO,
-      );
+      const logger = new ConsoleLogger(options.verbose ? LogLevel.DEBUG : LogLevel.INFO);
 
-      const hasAnyTarget = options.githubComment || options.githubStatus || options.slack || options.webhook;
+      const hasAnyTarget =
+        options.githubComment ||
+        options.githubStatus ||
+        options.slack ||
+        options.webhook ||
+        options.datadog;
       if (!hasAnyTarget) {
-        logger.error('No notification target specified. Use --github-comment, --github-status, --slack, or --webhook.');
+        logger.error(
+          'No notification target specified. Use --github-comment, --github-status, --slack, --webhook, or --datadog.',
+        );
         process.exit(2);
         return;
       }
@@ -312,10 +421,12 @@ export function registerNotifyCommand(program: Command): void {
           });
 
           if (options.format === 'json') {
-            process.stdout.write(JSON.stringify({ target: 'github-comment', payload }, null, 2) + '\n');
+            process.stdout.write(
+              JSON.stringify({ target: 'github-comment', payload }, null, 2) + '\n',
+            );
+          } else {
+            await sendGitHubComment(payload, logger);
           }
-
-          await sendGitHubComment(payload, logger);
           results['github-comment'] = { sent: true };
         } catch (error) {
           const msg = error instanceof AppError ? error.message : String(error);
@@ -342,10 +453,12 @@ export function registerNotifyCommand(program: Command): void {
           });
 
           if (options.format === 'json') {
-            process.stdout.write(JSON.stringify({ target: 'github-status', payload }, null, 2) + '\n');
+            process.stdout.write(
+              JSON.stringify({ target: 'github-status', payload }, null, 2) + '\n',
+            );
+          } else {
+            await sendGitHubStatus(payload, logger);
           }
-
-          await sendGitHubStatus(payload, logger);
           results['github-status'] = { sent: true };
         } catch (error) {
           const msg = error instanceof AppError ? error.message : String(error);
@@ -364,9 +477,9 @@ export function registerNotifyCommand(program: Command): void {
 
           if (options.format === 'json') {
             process.stdout.write(JSON.stringify({ target: 'slack', payload }, null, 2) + '\n');
+          } else {
+            await sendSlackWebhook(options.slack, payload, logger);
           }
-
-          await sendSlackWebhook(options.slack, payload, logger);
           results['slack'] = { sent: true };
         } catch (error) {
           const msg = error instanceof AppError ? error.message : String(error);
@@ -382,14 +495,44 @@ export function registerNotifyCommand(program: Command): void {
 
           if (options.format === 'json') {
             process.stdout.write(JSON.stringify({ target: 'webhook', payload }, null, 2) + '\n');
+          } else {
+            await sendWebhook(options.webhook, payload, logger);
           }
-
-          await sendWebhook(options.webhook, payload, logger);
           results['webhook'] = { sent: true };
         } catch (error) {
           const msg = error instanceof AppError ? error.message : String(error);
           logger.warn('Webhook notification failed (non-fatal)', { error: msg });
           results['webhook'] = { sent: false, error: msg };
+        }
+      }
+
+      // --- Datadog Metrics ---
+      if (options.datadog) {
+        try {
+          if (options.format === 'json') {
+            process.stdout.write(
+              JSON.stringify(
+                {
+                  target: 'datadog',
+                  payload: buildDatadogPayload(runResult, [
+                    `status:${runResult.status}`,
+                    `branch:${runResult.git.branch || 'unknown'}`,
+                    `ci:${runResult.environment.ci || 'local'}`,
+                  ]),
+                },
+                null,
+                2,
+              ) + '\n',
+            );
+          } else {
+            await sendDatadogMetrics(runResult, logger);
+          }
+
+          results['datadog'] = { sent: true };
+        } catch (error) {
+          const msg = error instanceof AppError ? error.message : String(error);
+          logger.warn('Datadog notification failed (non-fatal)', { error: msg });
+          results['datadog'] = { sent: false, error: msg };
         }
       }
 

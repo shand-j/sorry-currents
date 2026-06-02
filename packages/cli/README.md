@@ -30,23 +30,20 @@ Generate an optimized shard execution plan from historical timing data.
 sorry-currents plan --shards 4
 sorry-currents plan --target-duration 30 --max-shards 8
 sorry-currents plan --output-matrix          # GitHub Actions matrix JSON
-sorry-currents plan --risk-factor 1          # Variance-aware padding
+sorry-currents plan --fail-fast threshold --max-failures 5
 sorry-currents plan --strategy round-robin   # Alternative strategy
-sorry-currents plan --test-dir src/tests     # Discover test files from directory
 ```
 
-| Option | Default | Description |
-|--------|---------|-------------|
-| `--shards <n>` | — | Fixed shard count (overrides `--target-duration`) |
-| `--target-duration <s>` | — | Target wall-clock seconds per shard (auto-calculates count) |
-| `--max-shards <n>` | `10` | Maximum shards when using `--target-duration` |
-| `--risk-factor <k>` | `1` | Variance padding multiplier (0=avg only, 1=+1σ, 2=+2σ) |
-| `--timing <path>` | `.sorry-currents/timing-data.json` | Path to timing data |
-| `--test-dir <dir>` | — | Directory to discover test files from |
-| `--output <path>` | stdout | Write plan to file |
-| `--output-matrix` | `false` | Output GitHub Actions matrix JSON |
-| `--strategy <name>` | `lpt` | Balancing strategy: `lpt`, `round-robin`, `file` |
-| `--default-timeout <ms>` | `30000` | Estimated duration for tests without history |
+| Option                   | Default                            | Description                                             |
+| ------------------------ | ---------------------------------- | ------------------------------------------------------- |
+| `--shards <n>`           | —                                  | Fixed shard count                                       |
+| `--timing <path>`        | `.sorry-currents/timing-data.json` | Path to timing data                                     |
+| `--output <path>`        | stdout                             | Write plan to file                                      |
+| `--output-matrix`        | `false`                            | Output GitHub Actions matrix JSON                       |
+| `--strategy <name>`      | `lpt`                              | Balancing strategy: `lpt`, `round-robin`, `file`        |
+| `--default-timeout <ms>` | `30000`                            | Estimated duration for tests without history            |
+| `--fail-fast <mode>`     | `off`                              | Fail-fast strategy: `off`, `first-failure`, `threshold` |
+| `--max-failures <n>`     | `1`                                | Failure threshold for `--fail-fast threshold`           |
 
 ### `sorry-currents run`
 
@@ -54,8 +51,26 @@ Run Playwright tests with sorry-currents reporter auto-configured.
 
 ```bash
 sorry-currents run --shard-plan shard-plan.json --shard-index 1
+sorry-currents run --fail-fast first-failure
 sorry-currents run -- --config=custom.config.ts --workers 4
 ```
+
+### `sorry-currents retry-failed`
+
+Rerun only failed tests from a previous merged run result.
+
+```bash
+sorry-currents retry-failed
+sorry-currents retry-failed --input .sorry-currents/merged-run-result.json
+sorry-currents retry-failed --include-interrupted
+sorry-currents retry-failed -- --project chromium --workers 2
+```
+
+| Option                  | Default                                  | Description                                  |
+| ----------------------- | ---------------------------------------- | -------------------------------------------- |
+| `--input <path>`        | `.sorry-currents/merged-run-result.json` | Path to merged run result JSON               |
+| `--run-id <id>`         | auto                                     | Explicit run ID for the retry run            |
+| `--include-interrupted` | `false`                                  | Include interrupted tests in retry selection |
 
 ### `sorry-currents merge`
 
@@ -96,15 +111,16 @@ sorry-currents notify --github-comment   # PR comment (requires GITHUB_TOKEN)
 sorry-currents notify --github-status    # Commit status check
 sorry-currents notify --slack <url>      # Slack webhook
 sorry-currents notify --webhook <url>    # Generic HTTP POST
+sorry-currents notify --datadog          # Datadog metrics (requires DD_API_KEY)
 ```
 
 ## Exit Codes
 
-| Code | Meaning |
-|------|---------|
-| `0` | Success |
-| `1` | Test failures detected |
-| `2` | sorry-currents operational error |
+| Code | Meaning                          |
+| ---- | -------------------------------- |
+| `0`  | Success                          |
+| `1`  | Test failures detected           |
+| `2`  | sorry-currents operational error |
 
 ## CI Usage Example (GitHub Actions)
 

@@ -9,6 +9,7 @@ import { registerRunCommand } from '../commands/run.js';
 import { registerReportCommand } from '../commands/report.js';
 import { registerHistoryCommand } from '../commands/history.js';
 import { registerNotifyCommand } from '../commands/notify.js';
+import { registerRetryFailedCommand } from '../commands/retry-failed.js';
 
 // --- Helpers ---
 
@@ -22,7 +23,7 @@ function createProgram(): Command {
 // --- Command Registration ---
 
 describe('CLI command registration', () => {
-  it('should register all 7 commands', () => {
+  it('should register all 8 commands', () => {
     const program = createProgram();
 
     registerMergeCommand(program);
@@ -32,6 +33,7 @@ describe('CLI command registration', () => {
     registerReportCommand(program);
     registerHistoryCommand(program);
     registerNotifyCommand(program);
+    registerRetryFailedCommand(program);
 
     const commandNames = program.commands.map((c) => c.name());
     expect(commandNames).toContain('merge');
@@ -41,7 +43,8 @@ describe('CLI command registration', () => {
     expect(commandNames).toContain('report');
     expect(commandNames).toContain('history');
     expect(commandNames).toContain('notify');
-    expect(commandNames).toHaveLength(7);
+    expect(commandNames).toContain('retry-failed');
+    expect(commandNames).toHaveLength(8);
   });
 });
 
@@ -95,7 +98,7 @@ describe('init command', () => {
 // --- Plan command ---
 
 describe('plan command', () => {
-  it('should accept all documented options', () => {
+  it('should accept currently supported options', () => {
     const program = createProgram();
     registerPlanCommand(program);
 
@@ -108,10 +111,9 @@ describe('plan command', () => {
     expect(optionNames).toContain('--output-matrix');
     expect(optionNames).toContain('--strategy');
     expect(optionNames).toContain('--default-timeout');
-    expect(optionNames).toContain('--target-duration');
-    expect(optionNames).toContain('--max-shards');
-    expect(optionNames).toContain('--risk-factor');
-    expect(optionNames).toContain('--test-dir');
+    expect(optionNames).toContain('--fail-fast');
+    expect(optionNames).toContain('--max-failures');
+    expect(optionNames).toContain('--verbose');
   });
 });
 
@@ -128,6 +130,8 @@ describe('run command', () => {
     expect(optionNames).toContain('--shard-plan');
     expect(optionNames).toContain('--shard-index');
     expect(optionNames).toContain('--run-id');
+    expect(optionNames).toContain('--fail-fast');
+    expect(optionNames).toContain('--max-failures');
   });
 });
 
@@ -181,7 +185,25 @@ describe('notify command', () => {
     expect(optionNames).toContain('--github-status');
     expect(optionNames).toContain('--slack');
     expect(optionNames).toContain('--webhook');
+    expect(optionNames).toContain('--datadog');
     expect(optionNames).toContain('--input');
     expect(optionNames).toContain('--report-url');
+  });
+});
+
+// --- Retry-failed command ---
+
+describe('retry-failed command', () => {
+  it('should accept all documented options', () => {
+    const program = createProgram();
+    registerRetryFailedCommand(program);
+
+    const cmd = program.commands.find((c) => c.name() === 'retry-failed')!;
+    const optionNames = cmd.options.map((o) => o.long);
+
+    expect(optionNames).toContain('--input');
+    expect(optionNames).toContain('--run-id');
+    expect(optionNames).toContain('--include-interrupted');
+    expect(optionNames).toContain('--verbose');
   });
 });
