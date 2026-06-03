@@ -19,7 +19,7 @@ program
     'CLI-native, zero-infrastructure Playwright test orchestration. ' +
       'Smart shard balancing, enhanced reporting, and flaky test detection.',
   )
-  .version('0.5.0');
+  .version('0.5.1');
 
 registerMergeCommand(program);
 registerInitCommand(program);

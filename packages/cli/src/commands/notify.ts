@@ -23,6 +23,8 @@ import {
   type WebhookPayload,
 } from '@sorry-currents/core';
 
+const GITHUB_API_BASE = 'https://api.github.com';
+
 interface NotifyOptions {
   readonly githubComment?: boolean;
   readonly githubStatus?: boolean;
@@ -102,7 +104,7 @@ async function resolvePrNumber(runResult: RunResult, logger: Logger): Promise<nu
 }
 
 /**
- * Send a GitHub PR comment using @octokit/rest.
+ * Send a GitHub PR comment using GitHub REST API.
  * Updates existing sorry-currents comment if found, otherwise creates a new one.
  */
 async function sendGitHubComment(payload: GitHubCommentPayload, logger: Logger): Promise<void> {
@@ -114,10 +116,6 @@ async function sendGitHubComment(payload: GitHubCommentPayload, logger: Logger):
     );
   }
 
-  // Dynamic import — @octokit/rest is only needed when this flag is used
-  const { Octokit } = await import('@octokit/rest');
-  const octokit = new Octokit({ auth: token });
-
   const marker = getCommentMarker();
 
   // Look for an existing sorry-currents comment to update
@@ -126,13 +124,11 @@ async function sendGitHubComment(payload: GitHubCommentPayload, logger: Logger):
   let page = 1;
   const perPage = 100;
   while (true) {
-    const { data: comments } = await octokit.issues.listComments({
-      owner: payload.owner,
-      repo: payload.repo,
-      issue_number: payload.issueNumber,
-      per_page: perPage,
-      page,
-    });
+    const comments = await githubApiRequest<Array<{ id: number; body?: string | null }>>(
+      `repos/${payload.owner}/${payload.repo}/issues/${payload.issueNumber}/comments?per_page=${perPage}&page=${page}`,
+      token,
+      'GET',
+    );
     allComments.push(...comments);
     if (comments.length < perPage) break;
     page++;
@@ -143,23 +139,23 @@ async function sendGitHubComment(payload: GitHubCommentPayload, logger: Logger):
   );
 
   if (existing) {
-    await octokit.issues.updateComment({
-      owner: payload.owner,
-      repo: payload.repo,
-      comment_id: existing.id,
-      body: payload.body,
-    });
+    await githubApiRequest(
+      `repos/${payload.owner}/${payload.repo}/issues/comments/${existing.id}`,
+      token,
+      'PATCH',
+      { body: payload.body },
+    );
     logger.info('Updated existing PR comment', {
       pr: payload.issueNumber,
       commentId: existing.id,
     });
   } else {
-    const { data: created } = await octokit.issues.createComment({
-      owner: payload.owner,
-      repo: payload.repo,
-      issue_number: payload.issueNumber,
-      body: payload.body,
-    });
+    const created = await githubApiRequest<{ id: number }>(
+      `repos/${payload.owner}/${payload.repo}/issues/${payload.issueNumber}/comments`,
+      token,
+      'POST',
+      { body: payload.body },
+    );
     logger.info('Created PR comment', {
       pr: payload.issueNumber,
       commentId: created.id,
@@ -168,7 +164,7 @@ async function sendGitHubComment(payload: GitHubCommentPayload, logger: Logger):
 }
 
 /**
- * Set a GitHub commit status check using @octokit/rest.
+ * Set a GitHub commit status check using GitHub REST API.
  */
 async function sendGitHubStatus(payload: GitHubStatusPayload, logger: Logger): Promise<void> {
   const token = process.env['GITHUB_TOKEN'];
@@ -179,24 +175,62 @@ async function sendGitHubStatus(payload: GitHubStatusPayload, logger: Logger): P
     );
   }
 
-  const { Octokit } = await import('@octokit/rest');
-  const octokit = new Octokit({ auth: token });
-
-  await octokit.repos.createCommitStatus({
-    owner: payload.owner,
-    repo: payload.repo,
-    sha: payload.sha,
-    state: payload.state,
-    description: payload.description,
-    context: payload.context,
-    ...(payload.targetUrl ? { target_url: payload.targetUrl } : {}),
-  });
+  await githubApiRequest(
+    `repos/${payload.owner}/${payload.repo}/statuses/${payload.sha}`,
+    token,
+    'POST',
+    {
+      state: payload.state,
+      description: payload.description,
+      context: payload.context,
+      ...(payload.targetUrl ? { target_url: payload.targetUrl } : {}),
+    },
+  );
 
   logger.info('Set commit status', {
     sha: payload.sha.slice(0, 7),
     state: payload.state,
     description: payload.description,
   });
+}
+
+/**
+ * GitHub REST API helper with auth, timeout, and normalized error handling.
+ */
+async function githubApiRequest<T>(
+  path: string,
+  token: string,
+  method: 'GET' | 'POST' | 'PATCH',
+  body?: Record<string, unknown>,
+): Promise<T> {
+  const response = await fetch(`${GITHUB_API_BASE}/${path}`, {
+    method,
+    headers: {
+      Accept: 'application/vnd.github+json',
+      Authorization: `Bearer ${token}`,
+      'User-Agent': 'sorry-currents/0.5.1',
+      'X-GitHub-Api-Version': '2022-11-28',
+      ...(body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  if (!response.ok) {
+    const responseBody = await response.text().catch(() => 'unknown');
+    throw AppError.githubApiError(`GitHub API request failed: ${response.status}`, {
+      path,
+      method,
+      status: response.status,
+      body: responseBody,
+    });
+  }
+
+  if (response.status === 204) {
+    return undefined as T;
+  }
+
+  return response.json() as Promise<T>;
 }
 
 /**
@@ -233,7 +267,7 @@ async function sendWebhook(url: string, payload: WebhookPayload, logger: Logger)
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'User-Agent': 'sorry-currents/0.5.0',
+      'User-Agent': 'sorry-currents/0.5.1',
     },
     body: JSON.stringify(payload),
     signal: AbortSignal.timeout(30_000),
